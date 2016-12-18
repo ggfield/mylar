@@ -1032,6 +1032,35 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                 #let's check for first occurance of '(' as generally indicates
                 #that the 'title' has ended
 
+                    #only download digital releases
+                    strongInclude = ['digital', 'webrip']
+                    weakInclude = ['empire', 'minuteman']
+                    exclude = ['c2c']
+
+                    cont = True
+
+                    for val in strongInclude:
+                        if val in cleantitle.lower():
+                            cont = False
+                            break
+
+                    if cont:
+                        cont = False
+                        for val in exclude:
+                            if val in cleantitle.lower():
+                                cont = True
+                                break
+
+                        if not cont:
+                            cont = True
+                            for val in weakInclude:
+                                if val in cleantitle.lower():
+                                    cont = False
+                                    break
+
+                    if cont:
+                        continue
+
                     ripperlist=['digital-',
                                 'empire',
                                 'dcp']
