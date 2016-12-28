@@ -247,7 +247,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
                         loopit = len(chkthealt)
                         for calt in chkthealt:
                             AS_Alternate = re.sub('##', '', calt)
-                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate) + " " + str(ComicYear))
+                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate))
                             findit = NZB_SEARCH(AS_Alternate, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, searchprov, send_prov_count, IssDateFix, IssueID, UseFuzzy, newznab_host, ComicVersion=ComicVersion, SARC=SARC, IssueArcID=IssueArcID, RSS="yes", ComicID=ComicID, issuetitle=issuetitle, unaltered_ComicName=AS_Alternate, allow_packs=allow_packs)
                             if findit == 'yes':
                                 break
@@ -266,7 +266,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
                         loopit = len(chkthealt)
                         for calt in chkthealt:
                             AS_Alternate = re.sub('##', '', calt)
-                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate) + " " + str(ComicYear))
+                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate))
                             findit = NZB_SEARCH(AS_Alternate, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, searchprov, send_prov_count, IssDateFix, IssueID, UseFuzzy, newznab_host, ComicVersion=ComicVersion, SARC=SARC, IssueArcID=IssueArcID, RSS="no", ComicID=ComicID, issuetitle=issuetitle, unaltered_ComicName=unaltered_ComicName, allow_packs=allow_packs)
                             if findit == 'yes':
                                 break
@@ -274,7 +274,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
 
             if searchprov == 'newznab':
                 searchprov = newznab_host[0].rstrip()
-            logger.info('Could not find Issue ' + IssueNumber + ' of ' + ComicName + '(' + str(SeriesYear) + ') using ' + str(searchprov) + ' [' + str(searchmode) + ']')
+            logger.info('Could not find Issue ' + IssueNumber + ' of ' + ComicName + ' (' + str(SeriesYear) + ') using ' + str(searchprov) + ' [' + str(searchmode) + ']')
             prov_count+=1
             #torprtmp+=1  #torprtmp-=1
 
@@ -309,6 +309,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
         allow_packs = False
     logger.info('allow_packs set to :' + str(allow_packs))
 
+    newznab_local = False
+
     if nzbprov == 'nzb.su':
         apikey = mylar.NZBSU_APIKEY
         verify = bool(mylar.NZBSU_VERIFY)
@@ -324,6 +326,9 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
         #updated to include Newznab Name now
         name_newznab = newznab_host[0].rstrip()
         host_newznab = newznab_host[1].rstrip()
+        if name_newznab[-7:] == '[local]':
+            name_newznab = name_newznab[:-7].strip()
+            newznab_local = True
         apikey = newznab_host[3].rstrip()
         verify = bool(newznab_host[2].rstrip())
         if '#' in newznab_host[4].rstrip():
@@ -514,7 +519,6 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     logger.fdebug("Sending request to [" + str(nzbprov) + "] RSS for " + ComicName + " : " + str(mod_isssearch))
                     bb = rsscheck.torrentdbsearch(ComicName, mod_isssearch, ComicID, nzbprov)
                     rss = "yes"
-                    #if bb is not None: logger.fdebug("bb results: " + str(bb))
                 else:
                     cmname = re.sub("%20", " ", str(comsrc))
                     logger.fdebug("Sending request to RSS for " + str(findcomic) + " : " + str(mod_isssearch) + " (" + str(ComicYear) + ")")
@@ -523,7 +527,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     else: nzbprov_fix = nzbprov
                     bb = rsscheck.nzbdbsearch(findcomic, mod_isssearch, ComicID, nzbprov_fix, ComicYear, ComicVersion)
                     rss = "yes"
-                    #if bb is not None: logger.fdebug("bb results: " +  str(bb))
+                if bb is None:
+                    bb = 'no results'
             #this is the API calls
             else:
                 #32P is redudant now since only RSS works
@@ -539,6 +544,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                         a = auth32p.info32p(searchterm=searchterm)
                         bb = a.searchit()
                         rss = "no"
+                        if bb is None:
+                            bb = 'no results'
                     else:
                         bb = "no results"
                         rss = "no"
@@ -547,7 +554,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     logger.fdebug("Sending request to [TPSE] for " + str(cmname) + " : " + str(mod_isssearch))
                     bb = rsscheck.torrents(pickfeed='TPSE-SEARCH', seriesname=cmname, issue=mod_isssearch)#cmname,issue=mod_isssearch)
                     rss = "no"
-                    #if bb is not None: logger.fdebug("results: " + str(bb))
+                    if bb is None:
+                        bb = 'no results'
                 elif nzbprov != 'experimental':
                     if nzbprov == 'dognzb':
                         findurl = "https://api.dognzb.cr/api?t=search&q=" + str(comsearch) + "&o=xml&cat=7030"
@@ -603,7 +611,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                             else:
                                 hnc = host_newznab_fix
 
-                            if hnc[:3] == '10.' or hnc[:4] == '172.' or hnc[:4] == '192.' or hnc.startswith('localhost'):
+                            if any([hnc[:3] == '10.', hnc[:4] == '172.', hnc[:4] == '192.', hnc.startswith('localhost'), newznab_local]):
+                                logger.info('local domain bypass for ' + name_newznab + ' is active.')
                                 localbypass = True
 
                         if localbypass == False:
@@ -641,7 +650,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                                 #HTTP Error 503
                                 logger.warn('Aborting search due to Provider unavailability')
                                 foundc = "no"
-                                break
+                            break
 
                         try:
                             if str(r.status_code) != '200':
@@ -2211,6 +2220,8 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
             sent_to = "your rTorrent client"
         elif mylar.USE_TRANSMISSION:
             sent_to = "your Transmission client"
+        elif mylar.USE_DELUGE:
+            sent_to = "your Deluge client"            
     #end torrents
 
     else:

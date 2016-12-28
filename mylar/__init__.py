@@ -423,6 +423,13 @@ TRANSMISSION_USERNAME = None
 TRANSMISSION_PASSWORD = None
 TRANSMISSION_DIRECTORY = None
 
+USE_DELUGE = False
+DELUGE_HOST = None
+DELUGE_USERNAME = None
+DELUGE_PASSWORD = None
+DELUGE_LABEL = None
+
+
 def CheckSection(sec):
     """ Check if INI section exists, if not create it """
     try:
@@ -482,7 +489,7 @@ def initialize():
                 NEWZNAB, NEWZNAB_NAME, NEWZNAB_HOST, NEWZNAB_APIKEY, NEWZNAB_VERIFY, NEWZNAB_UID, NEWZNAB_ENABLED, EXTRA_NEWZNABS, NEWZNAB_EXTRA, \
                 ENABLE_TORZNAB, TORZNAB_NAME, TORZNAB_HOST, TORZNAB_APIKEY, TORZNAB_CATEGORY, TORZNAB_VERIFY, EXPERIMENTAL, ALTEXPERIMENTAL, \
                 USE_RTORRENT, RTORRENT_HOST, RTORRENT_AUTHENTICATION, RTORRENT_RPC_URL, RTORRENT_SSL, RTORRENT_VERIFY, RTORRENT_CA_BUNDLE, RTORRENT_USERNAME, RTORRENT_PASSWORD, RTORRENT_STARTONLOAD, RTORRENT_LABEL, RTORRENT_DIRECTORY, \
-                USE_UTORRENT, UTORRENT_HOST, UTORRENT_USERNAME, UTORRENT_PASSWORD, UTORRENT_LABEL, USE_TRANSMISSION, TRANSMISSION_HOST, TRANSMISSION_USERNAME, TRANSMISSION_PASSWORD, TRANSMISSION_DIRECTORY, \
+                USE_UTORRENT, UTORRENT_HOST, UTORRENT_USERNAME, UTORRENT_PASSWORD, UTORRENT_LABEL, USE_TRANSMISSION, TRANSMISSION_HOST, TRANSMISSION_USERNAME, TRANSMISSION_PASSWORD, TRANSMISSION_DIRECTORY, USE_DELUGE, DELUGE_HOST, DELUGE_USERNAME, DELUGE_PASSWORD, DELUGE_LABEL,  \
                 ENABLE_META, CMTAGGER_PATH, CBR2CBZ_ONLY, CT_TAG_CR, CT_TAG_CBL, CT_CBZ_OVERWRITE, UNRAR_CMD, CT_SETTINGSPATH, CMTAG_START_YEAR_AS_VOLUME, UPDATE_ENDED, INDIE_PUB, BIGGIE_PUB, IGNORE_HAVETOTAL, SNATCHED_HAVETOTAL, PROVIDER_ORDER, TMP_PROV, \
                 dbUpdateScheduler, searchScheduler, RSSScheduler, WeeklyScheduler, VersionScheduler, FolderMonitorScheduler, \
                 ALLOW_PACKS, ENABLE_TORRENTS, TORRENT_DOWNLOADER, MINSEEDS, USE_WATCHDIR, TORRENT_LOCAL, LOCAL_WATCHDIR, TORRENT_SEEDBOX, SEEDBOX_HOST, SEEDBOX_PORT, SEEDBOX_USER, SEEDBOX_PASS, SEEDBOX_WATCHDIR, \
@@ -836,6 +843,9 @@ def initialize():
         elif TORRENT_DOWNLOADER == 3:
             TORRENT_LOCAL = False
             USE_TRANSMISSION = True
+        elif TORRENT_DOWNLOADER == 4:
+            TORRENT_LOCAL = False
+            USE_DELUGE = True
         else:
                 TORRENT_DOWNLOADER = 0
                 USE_WATCHDIR = True
@@ -851,6 +861,11 @@ def initialize():
         TRANSMISSION_PASSWORD = check_setting_str(CFG, 'Transmission', 'transmission_password', '')
         TRANSMISSION_DIRECTORY = check_setting_str(CFG, 'Transmission', 'transmission_directory', '')
 
+        DELUGE_HOST = check_setting_str(CFG, 'Deluge', 'deluge_host', '')
+        DELUGE_USERNAME = check_setting_str(CFG, 'Deluge', 'deluge_username', '')
+        DELUGE_PASSWORD = check_setting_str(CFG, 'Deluge', 'deluge_password', '')
+        DELUGE_LABEL = check_setting_str(CFG, 'Deluge', 'deluge_label', '')
+        
         #add torrents to provider counter.
         if ENABLE_TORRENT_SEARCH:
             if ENABLE_32P:
@@ -1598,6 +1613,12 @@ def config_write():
     new_config['Transmission']['transmission_password'] = TRANSMISSION_PASSWORD
     new_config['Transmission']['transmission_directory'] = TRANSMISSION_DIRECTORY
 
+    new_config['Deluge'] = {}
+    new_config['Deluge']['deluge_host'] = DELUGE_HOST
+    new_config['Deluge']['deluge_username'] = DELUGE_USERNAME
+    new_config['Deluge']['deluge_password'] = DELUGE_PASSWORD
+    new_config['Deluge']['deluge_label'] = DELUGE_LABEL
+    
     # Need to unpack the extra newznabs for saving in config.ini
     flattened_newznabs = []
     for newznab in EXTRA_NEWZNABS:
@@ -1718,7 +1739,7 @@ def dbcheck():
     c=conn.cursor()
 
     c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, ComicPublisher TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, LatestDate TEXT, Description TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT, DynamicComicName TEXT, AllowPacks TEXT, Type TEXT, Corrected_SeriesYear TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS issues (IssueID TEXT, ComicName TEXT, IssueName TEXT, Issue_Number TEXT, DateAdded TEXT, Status TEXT, Type TEXT, ComicID TEXT, ArtworkURL Text, ReleaseDate TEXT, Location TEXT, IssueDate TEXT, Int_IssueNumber INT, ComicSize TEXT, AltIssueNumber TEXT, IssueDate_Edit TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS issues (IssueID TEXT, ComicName TEXT, IssueName TEXT, Issue_Number TEXT, DateAdded TEXT, Status TEXT, Type TEXT, ComicID TEXT, ArtworkURL Text, ReleaseDate TEXT, Location TEXT, IssueDate TEXT, Int_IssueNumber INT, ComicSize TEXT, AltIssueNumber TEXT, IssueDate_Edit TEXT, ImageURL TEXT, ImageURL_ALT TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS snatched (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Size INTEGER, DateAdded TEXT, Status TEXT, FolderName TEXT, ComicID TEXT, Provider TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS upcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Status TEXT, DisplayComicName TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS nzblog (IssueID TEXT, NZBName TEXT, SARC TEXT, PROVIDER TEXT, ID TEXT, AltNZBName TEXT)')
@@ -1869,6 +1890,16 @@ def dbcheck():
         c.execute('SELECT IssueDate_Edit from issues')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE issues ADD COLUMN IssueDate_Edit TEXT')
+
+    try:
+        c.execute('SELECT ImageURL from issues')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE issues ADD COLUMN ImageURL TEXT')
+
+    try:
+        c.execute('SELECT ImageURL_ALT from issues')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE issues ADD COLUMN ImageURL_ALT TEXT')
 
 
     ## -- ImportResults Table --
