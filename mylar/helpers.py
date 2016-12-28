@@ -1376,7 +1376,7 @@ def IssueDetails(filelocation, IssueID=None):
 
     if filelocation.endswith('.cbz'):
         logger.fdebug('CBZ file detected. Checking for .xml within file')
-        shutil.copy(filelocation, dstlocation)
+        shutil.copyfile(filelocation, dstlocation)
     else:
         logger.fdebug('filename is not a cbz : ' + filelocation)
         return
