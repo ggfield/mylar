@@ -110,10 +110,10 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
                 continue
             return
         elif pickfeed == "5" and srchterm is not None:  # demonoid search / non-RSS
-            feed = 'https://www.demonoid.cc/' + "files/?category=10&subcategory=All&language=0&seeded=2&external=2&query=" + str(srchterm) + "&uid=0&out=rss"
+            feed = 'https://www.dnoid.me/' + "files/?category=10&subcategory=All&language=0&seeded=2&external=2&query=" + str(srchterm) + "&uid=0&out=rss"
             verify = bool(mylar.TPSE_VERIFY)
         elif pickfeed == "6":    # demonoid rss feed 
-            feed = 'https://www.demonoid.cc/rss/10.xml'
+            feed = 'https://www.dnoid.me/rss/10.xml'
             feedtype = ' from the New Releases RSS Feed from Demonoid'
             verify = bool(mylar.TPSE_VERIFY)
         elif pickfeed == "999":    #WWT rss feed
@@ -853,9 +853,9 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
         url = helpers.torrent_create('DEM', linkit)
 
         if url.startswith('https'):
-            dem_referrer = 'https://www.demonoid.cc/files/download/'
+            dem_referrer = 'https://www.dnoid.me/files/download/'
         else:
-            dem_referrer = 'http://www.demonoid.cc/files/download/'
+            dem_referrer = 'http://www.dnoid.me/files/download/'
 
         headers = {'Accept-encoding': 'gzip',
                    'User-Agent':      str(mylar.USER_AGENT),
@@ -918,23 +918,32 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
         #r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
 
     except Exception, e:
-        logger.warn('Error fetching data from %s: %s' % (site, e))
+        logger.warn('Error fetching data from %s (%s): %s' % (site, url, e))
         if site == '32P':
+            logger.info('[TOR2CLIENT-32P] Retrying with 32P')
             if mylar.MODE_32P == 1:
-                logger.info('Attempting to re-authenticate against 32P and poll new keys as required.')
+                
+                logger.info('[TOR2CLIENT-32P] Attempting to re-authenticate against 32P and poll new keys as required.')
                 feed32p = auth32p.info32p(reauthenticate=True)
                 feedinfo = feed32p.authenticate()
+
                 if feedinfo == "disable":
                     mylar.ENABLE_32P = 0
                     mylar.config_write()
                     return "fail"
+                
+                logger.debug('[TOR2CLIENT-32P] Creating CF Scraper')
+                scraper = cfscrape.create_scraper()
+
+                logger.debug('[TOR2CLIENT-32P] payload: %s \n verify %s \n headers %s \n', payload, verify, headers)
+                
                 try:
-                    r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
+                    r = scraper.get(url, params=payload, verify=verify, allow_redirects=True)
                 except Exception, e:
-                    logger.warn('Error fetching data from %s: %s' % (site, e))
+                    logger.warn('[TOR2CLIENT-32P] Unable to GET %s (%s): %s' % (site, url, e))
                     return "fail"
             else:
-                logger.warn('[32P] Unable to authenticate using existing RSS Feed given. Make sure that you have provided a CURRENT feed from 32P')
+                logger.warn('[TOR2CLIENT-32P] Unable to authenticate using existing RSS Feed given. Make sure that you have provided a CURRENT feed from 32P')
                 return "fail"
         else:
             logger.info('blah: ' + str(r.status_code))

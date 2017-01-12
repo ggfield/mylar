@@ -162,7 +162,7 @@ def human2bytes(s):
     """
     symbols = ('B', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y')
     letter = s[-1:].strip().upper()
-    num = s[:-1]
+    num = re.sub(',', '', s[:-1])
     #assert num.isdigit() and letter in symbols
     #use below assert statement to handle sizes with decimal places
     assert float(num) and letter in symbols
@@ -1389,7 +1389,7 @@ def IssueDetails(filelocation, IssueID=None):
 
     try:
         with zipfile.ZipFile(dstlocation, 'r') as inzipfile:
-            for infile in inzipfile.namelist():
+            for infile in sorted(inzipfile.namelist()):
                 tmp_infile = re.sub("[^0-9]","", infile).strip()
                 if tmp_infile == '':
                     pass
@@ -1748,12 +1748,26 @@ def listLibrary():
             library[row['ReleaseComicId']] = row['ComicID']
     return library
 
+def listStoryArcs():
+    import db
+    library = {}
+    myDB = db.DBConnection()
+    # Get Distinct Arc IDs
+    list = myDB.select("SELECT DISTINCT(StoryArcID) FROM readinglist");
+    for row in list:
+        library[row['StoryArcID']] = row['StoryArcID']
+    # Get Distinct CV Arc IDs
+    list = myDB.select("SELECT DISTINCT(CV_ArcID) FROM readinglist");
+    for row in list:
+        library[row['CV_ArcID']] = row['CV_ArcID']
+    return library
+
 def listIssues(weeknumber, year):
     import db
     library = []
     myDB = db.DBConnection()
     # Get individual issues
-    list = myDB.select("SELECT issues.Status, issues.ComicID, issues.IssueID, issues.ComicName, weekly.publisher, issues.Issue_Number from weekly, issues where weekly.IssueID = issues.IssueID and weeknumber = ? and year = ?", [weeknumber, year])
+    list = myDB.select("SELECT issues.Status, issues.ComicID, issues.IssueID, issues.ComicName, weekly.publisher, issues.Issue_Number from weekly, issues where weekly.IssueID = issues.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
     for row in list:
         library.append({'ComicID': row['ComicID'],
                        'Status':  row['Status'],
@@ -1763,7 +1777,7 @@ def listIssues(weeknumber, year):
                        'Issue_Number': row['Issue_Number']})
     # Add the annuals
     if mylar.ANNUALS_ON:
-        list = myDB.select("SELECT annuals.Status, annuals.ComicID, annuals.ReleaseComicID, annuals.IssueID, annuals.ComicName, weekly.publisher, annuals.Issue_Number from weekly, annuals where weekly.IssueID = annuals.IssueID and weeknumber = ? and year = ?", [weeknumber, year])
+        list = myDB.select("SELECT annuals.Status, annuals.ComicID, annuals.ReleaseComicID, annuals.IssueID, annuals.ComicName, weekly.publisher, annuals.Issue_Number from weekly, annuals where weekly.IssueID = annuals.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
         for row in list:
             library.append({'ComicID': row['ComicID'],
                             'Status':  row['Status'],
@@ -1960,7 +1974,7 @@ def torrent_create(site, linkid, alt=None):
         else:
             url = 'http://torrentproject.se/torrent/' + str(linkid) + '.torrent'
     elif site == 'DEM':
-        url = 'https://www.demonoid.cc/files/download/' + str(linkid) + '/'
+        url = 'https://www.dnoid.me/files/download/' + str(linkid) + '/'
     elif site == 'WWT':
         url = 'https://worldwidetorrents.eu/download.php'
 
@@ -2355,7 +2369,7 @@ def arcformat(arc, spanyears, publisher):
         dstloc = os.path.join(mylar.DESTINATION_DIR, 'StoryArcs', arcpath)
     elif mylar.COPY2ARCDIR:
         logger.warn('Story arc directory is not configured. Defaulting to grabbag directory: ' + mylar.GRABBAG_DIR)
-        dstloc = mylar.GRABBAG_DIR
+        dstloc = os.path.join(mylar.GRABBAG_DIR, arcpath)
     else:
         dstloc = None
 

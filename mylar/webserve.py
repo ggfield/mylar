@@ -1227,28 +1227,28 @@ class WebInterface(object):
 
                 newznabinfo = None
 
-                if Provider == 'nzb.su':
+                if fullprov == 'nzb.su':
                     if not mylar.NZBSU:
                         logger.error('nzb.su is not enabled - unable to process retry request until provider is re-enabled.')
                         continue
                     # http://nzb.su/getnzb/ea1befdeee0affd663735b2b09010140.nzb&i=<uid>&r=<passkey>
                     link = 'http://nzb.su/getnzb/' + str(id) + '.nzb&i=' + str(mylar.NZBSU_UID) + '&r=' + str(mylar.NZBSU_APIKEY)
                     logger.info('fetched via nzb.su. Retrying the send : ' + str(link))
-                elif Provider == 'dognzb':
+                elif fullprov == 'dognzb':
                     if not mylar.DOGNZB:
                         logger.error('Dognzb is not enabled - unable to process retry request until provider is re-enabled.')
                         continue
                     # https://dognzb.cr/fetch/5931874bf7381b274f647712b796f0ac/<passkey>
                     link = 'https://dognzb.cr/fetch/' + str(id) + '/' + str(mylar.DOGNZB_APIKEY)
                     logger.info('fetched via dognzb. Retrying the send : ' + str(link))
-                elif Provider == 'experimental':
+                elif fullprov == 'experimental':
                     if not mylar.EXPERIMENTAL:
                         logger.error('Experimental is not enabled - unable to process retry request until provider is re-enabled.')
                         continue
                     # http://nzbindex.nl/download/110818178
                     link = 'http://nzbindex.nl/download/' + str(id)
                     logger.info('fetched via experimental. Retrying the send : ' + str(link))
-                elif 'newznab' in Provider:
+                elif 'newznab' in fullprov:
                     if not mylar.NEWZNAB:
                         logger.error('Newznabs are not enabled - unable to process retry request until provider is re-enabled.')
                         continue
@@ -1579,8 +1579,17 @@ class WebInterface(object):
             year = todaydate.strftime("%Y")
 
         prev_week = int(weeknumber) - 1
-        next_week = int(weeknumber) + 1
+        prev_year = year
+        if prev_week == 0:
+            prev_week = 52
+            prev_year = int(year) - 1
 
+        next_week = int(weeknumber) + 1
+        next_year = year
+        if next_week == 53:
+            next_week = 1
+            next_year = int(year) + 1
+        
         date_fmt = "%B %d, %Y"
 
         weekinfo = {'weeknumber':         weeknumber,
@@ -1589,8 +1598,11 @@ class WebInterface(object):
                     'endweek':            u"" + endweek.strftime(date_fmt).decode('utf-8'),
                     'year':               year,
                     'prev_weeknumber':    prev_week,
+                    'prev_year':          prev_year,
                     'next_weeknumber':    next_week,
-                    'current_weeknumber': current_weeknumber}
+                    'next_year':          next_year,
+                    'current_weeknumber': current_weeknumber,
+                    'last_update':        mylar.PULL_REFRESH}
 
         if mylar.WEEKFOLDER_LOC is not None:
             weekdst = mylar.WEEKFOLDER_LOC
@@ -1604,19 +1616,19 @@ class WebInterface(object):
 
         popit = myDB.select("SELECT * FROM sqlite_master WHERE name='weekly' and type='table'")
         if popit:
-            w_results = myDB.select("SELECT * from weekly WHERE weeknumber=?", [str(weeknumber)])
+            w_results = myDB.select("SELECT * from weekly WHERE weeknumber=? AND year=?", [int(weeknumber),year])
             if len(w_results) == 0:
                 logger.info('trying to repopulate to week: ' + str(weeknumber) + '-' + str(year))
                 repoll = self.manualpull(weeknumber=weeknumber,year=year)
                 if repoll['status'] == 'success':
-                    w_results = myDB.select("SELECT * from weekly WHERE weeknumber=?", [str(weeknumber)])
+                    w_results = myDB.select("SELECT * from weekly WHERE weeknumber=? AND year=?", [int(weeknumber),year])
                 else:
                     logger.warn('Problem repopulating the pullist for week ' + str(weeknumber) + ', ' + str(year))
                     if mylar.ALT_PULL == 2:
                         logger.warn('Attempting to repoll against legacy pullist in order to have some kind of updated listing for the week.')
                         repoll = self.manualpull()
                         if repoll['status'] == 'success':
-                            w_results = myDB.select("SELECT * from weekly WHERE weeknumber=?", [str(weeknumber)])
+                            w_results = myDB.select("SELECT * from weekly WHERE weeknumber=? AND year=?", [int(weeknumber),year])
                         else:
                             logger.warn('Unable to populate the pull-list. Not continuing at this time (will try again in abit)')
 
@@ -1632,8 +1644,9 @@ class WebInterface(object):
                 if weekly['ComicID'] in watchlibrary:
                     haveit = watchlibrary[weekly['ComicID']]
 
-                    if all([week >= weeknumber, mylar.AUTOWANT_UPCOMING, tmp_status == 'Skipped']):
-                        tmp_status = 'Wanted'
+                    if weeknumber:
+                        if any([week >= int(weeknumber), week is None]) and all([mylar.AUTOWANT_UPCOMING, tmp_status == 'Skipped']):
+                            tmp_status = 'Wanted'
 
                     for x in issueLibrary:
                         if weekly['IssueID'] == x['IssueID']:
@@ -2768,12 +2781,15 @@ class WebInterface(object):
             logger.info('arcpub: ' + arcpub)
             dstloc = helpers.arcformat(arcdir, spanyears, arcpub)
 
-            #if not os.path.isdir(dstloc) and mylar.STORYARCDIR:
-            #    logger.info('Story Arc Directory [' + dstloc + '] does not exist! - attempting to create now.')
-            #    checkdirectory = filechecker.validateAndCreateDirectory(dstloc, True)
-            #    if not checkdirectory:
-            #        logger.warn('Error trying to validate/create directory. Aborting this process at this time.')
-            #        return
+            if not os.path.isdir(dstloc):
+                if mylar.STORYARCDIR:
+                    logger.info('Story Arc Directory [' + dstloc + '] does not exist! - attempting to create now.')
+                else:
+                    logger.info('Story Arc Grab-Bag Directory [' + dstloc + '] does not exist! - attempting to create now.')
+                checkdirectory = filechecker.validateAndCreateDirectory(dstloc, True)
+                if not checkdirectory:
+                    logger.warn('Error trying to validate/create directory. Aborting this process at this time.')
+                    return
 
             if all([mylar.CVINFO, mylar.STORYARCDIR]):
                 if not os.path.isfile(os.path.join(dstloc, "cvinfo")) or mylar.CV_ONETIMER:
@@ -2960,7 +2976,7 @@ class WebInterface(object):
                                            if not fileoperation:
                                                raise OSError
                                         except (OSError, IOError):
-                                            logger.fdebug(module + ' Failed to ' + mylar.FILE_OPTS + ' ' + issloc + ' - check directories and manually re-run.')
+                                            logger.error('Failed to ' + mylar.FILE_OPTS + ' ' + issloc + ' - check directories and manually re-run.')
                                             continue
                                     else:
                                         logger.fdebug('Destination file exists: ' + dstloc)
@@ -3271,7 +3287,7 @@ class WebInterface(object):
 
     downloadLocal.exposed = True
 
-    def MassWeeklyDownload(self, pulldate, weekfolder=0, filename=None):
+    def MassWeeklyDownload(self, weeknumber=None, year=None, midweek=None, weekfolder=0, filename=None):
         if filename is None:
             mylar.WEEKFOLDER = int(weekfolder)
             mylar.config_write()
@@ -3280,20 +3296,18 @@ class WebInterface(object):
         # this will download all downloaded comics from the weekly pull list and throw them
         # into a 'weekly' pull folder for those wanting to transfer directly to a 3rd party device.
         myDB = db.DBConnection()
+
         if mylar.WEEKFOLDER:
             if mylar.WEEKFOLDER_LOC:
                 dstdir = mylar.WEEKFOLDER_LOC
             else:
                 dstdir = mylar.DESTINATION_DIR
-            import ast
-            pulldate = ast.literal_eval(pulldate)
-            logger.info('pulldate: ' + str(pulldate))
             if mylar.WEEKFOLDER_FORMAT == 0:
                 #0 = YYYY-mm
-                desdir = os.path.join(dstdir, str(pulldate['year']) + '-' + str(pulldate['weeknumber']))
+                desdir = os.path.join(dstdir, str(year) + '-' + str(weeknumber))
             elif mylar.WEEKFOLDER_FORMAT == 1:
                 #1 = YYYY-mm-dd (midweek)
-                desdir = os.path.join(dstdir, str(pulldate['midweek']))
+                desdir = os.path.join(dstdir, str(midweek))
 
             chkdir = filechecker.validateAndCreateDirectory(desdir, create=True, module='WEEKLY-FOLDER')
             if not chkdir:
@@ -3302,7 +3316,7 @@ class WebInterface(object):
         else:
             desdir = mylar.GRABBAG_DIR
 
-        issuelist = helpers.listIssues(pulldate['weeknumber'],pulldate['year'])
+        issuelist = helpers.listIssues(weeknumber,year)
         if issuelist is None:   # nothing on the list, just go go gone
             logger.info("There aren't any issues downloaded from this week yet.")
         else:
@@ -3315,8 +3329,8 @@ class WebInterface(object):
                     logger.info("Copied " + issue['ComicName'] + " #" + str(issue['Issue_Number']) + " to " + desdir.encode('utf-8').strip())
                     iscount+=1
 
-            logger.info('I have copied ' + str(iscount) + ' issues from week #' + str(pulldate['weeknumber']) + ' pullist as requested.')
-        raise cherrypy.HTTPRedirect("pullist?week=%s&year=%s" % (pulldate['weeknumber'], pulldate['year']))
+            logger.info('I have copied ' + str(iscount) + ' issues from week #' + str(weeknumber) + ' pullist as requested.')
+        raise cherrypy.HTTPRedirect("pullist?week=%s&year=%s" % (weeknumber, year))
     MassWeeklyDownload.exposed = True
 
     def idirectory(self):
@@ -4311,8 +4325,9 @@ class WebInterface(object):
         raise cherrypy.HTTPRedirect("comicDetails?ComicID=%s" % ComicID)
     comic_config.exposed = True
 
-    def readlistOptions(self, send2read=0, tab_enable=0, tab_host=None, tab_user=None, tab_pass=None, tab_directory=None):
+    def readlistOptions(self, send2read=0, tab_enable=0, tab_host=None, tab_user=None, tab_pass=None, tab_directory=None, maintainseriesfolder=0):
         mylar.SEND2READ = int(send2read)
+        mylar.MAINTAINSERIESFOLDER = int(maintainseriesfolder)
         mylar.TAB_ENABLE = int(tab_enable)
         mylar.TAB_HOST = tab_host
         mylar.TAB_USER = tab_user
