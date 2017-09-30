@@ -55,6 +55,7 @@ class TorrentClient(object):
             'name': torrent.name,
             'folder': torrent.downloadDir,
             'completed': torrent.progress == 100,
+            'label': 'None', ## labels not supported in transmission - for when it's in transmission
             'files': torrent_files,
             'upload_total': torrent.uploadedEver,
             'download_total': torrent.downloadedEver,
@@ -76,8 +77,12 @@ class TorrentClient(object):
             down_dir = mylar.CHECK_FOLDER
         else:
             down_dir = mylar.TRANSMISSION_DIRECTORY
-        torrent = self.conn.add_torrent(filepath,
-                                        download_dir=down_dir)
+        if filepath.startswith('magnet'):
+            torrent = self.conn.add_torrent('%s' % filepath,
+                                            download_dir=down_dir)
+        else:
+            torrent = self.conn.add_torrent('file://%s' % filepath,
+                                            download_dir=down_dir)
 
         torrent.start()
         return self.get_torrent(torrent)

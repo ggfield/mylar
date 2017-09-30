@@ -16,9 +16,9 @@
 import re
 import os
 import requests
-from bencode import bencode, bdecode
-from hashlib import sha1
-from cStringIO import StringIO
+import bencode
+import hashlib
+import StringIO
 
 import mylar
 from mylar import logger
@@ -81,16 +81,38 @@ class utorrentclient(object):
         # (to-do) verify the hash in order to ensure it's loaded here
         if str(r.status_code) == '200':
             logger.info('Successfully added torrent to uTorrent client.')
+            hash = self.calculate_torrent_hash(data=tordata)
             if mylar.UTORRENT_LABEL:
                 try:
-                    hash = self.calculate_torrent_hash(data=tordata)
                     self.setlabel(hash)
                 except:
                     logger.warn('Unable to set label for torrent.')
-
-            return 'pass'
+            return hash
         else:
             return 'fail'
+
+    def addurl(self, url):
+        params = {'action': 'add-url', 'token': self.token, 's': url}
+        try:
+            r = requests.post(url=self.utorrent_url, auth=self.auth, cookies=self.cookies, params=params)
+        except requests.exceptions.RequestException as err:
+            logger.debug('URL: ' + str(self.utorrent_url))
+            logger.debug('Error sending to uTorrent Client. uTorrent responded with error: ' + str(err))
+            return 'fail'
+
+        # (to-do) verify the hash in order to ensure it's loaded here
+        if str(r.status_code) == '200':
+            logger.info('Successfully added torrent to uTorrent client.')
+            hash = self.calculate_torrent_hash(link=url)
+            if mylar.UTORRENT_LABEL:
+                try:
+                    self.setlabel(hash)
+                except:
+                    logger.warn('Unable to set label for torrent.')
+            return hash
+        else:
+            return 'fail'
+
 
     def setlabel(self, hash):
         params = {'token': self.token, 'action': 'setprops', 'hash': hash, 's': 'label', 'v': str(mylar.UTORRENT_LABEL)}
@@ -101,16 +123,16 @@ class utorrentclient(object):
             logger.info('Unable to label torrent')
         return
 
-    def calculate_torrent_hash(link=None, filepath=None, data=None):
+    def calculate_torrent_hash(self, link=None, filepath=None, data=None):
         thehash = None
-        if not link:
+        if link is None:
             if filepath:
                 torrent_file = open(filepath, "rb")
-                metainfo = bdecode(torrent_file.read())
+                metainfo = bencode.decode(torrent_file.read())
             else:
-                metainfo = bdecode(data)
+                metainfo = bencode.decode(data)
             info = metainfo['info']
-            thehash = hashlib.sha1(bencode(info)).hexdigest().upper()
+            thehash = hashlib.sha1(bencode.encode(info)).hexdigest().upper()
             logger.info('Hash: ' + thehash)
         else:
             if link.startswith("magnet:"):

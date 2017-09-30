@@ -21,6 +21,8 @@ import shutil
 import traceback
 from base64 import b16encode, b32decode
 
+import hashlib, StringIO
+import bencode
 from torrent.helpers.variable import link, symlink, is_rarfile
 
 import requests
@@ -46,7 +48,7 @@ class RTorrent(object):
         torrent = self.client.find_torrent(torrent_hash)
         if torrent:
             if check:
-                logger.info('Successfully located torrent %s by hash on client. Detailed statistics to follow', torrent_hash)
+                logger.fdebug('Successfully located torrent %s by hash on client. Detailed statistics to follow', torrent_hash)
             else:
                 logger.warn("%s Torrent already exists. Not downloading at this time.", torrent_hash)
                 return
@@ -54,11 +56,17 @@ class RTorrent(object):
             if check:
                 logger.warn('Unable to locate torrent with a hash value of %s', torrent_hash)
                 return
-        
+
         if filepath:
             loadit = self.client.load_torrent(filepath)
             if loadit:
-                torrent_hash = self.get_the_hash(filepath)
+                if filepath.startswith('magnet'):
+                    torrent_hash = re.findall("urn:btih:([\w]{32,40})", filepath)[0]
+                    if len(torrent_hash) == 32:
+                        torrent_hash = b16encode(b32decode(torrent_hash)).lower()
+                    torrent_hash = torrent_hash.upper()
+                else:
+                    torrent_hash = self.get_the_hash(filepath)
             else:
                 return
 
@@ -72,30 +80,27 @@ class RTorrent(object):
             return torrent_info
 
         if torrent_info['completed']:
-            logger.info("Directory: %s", torrent_info['folder'])
-            logger.info("Name: %s", torrent_info['name'])
-            logger.info("FileSize: %s", helpers.human_size(torrent_info['total_filesize']))
-            logger.info("Completed: %s", torrent_info['completed'])
-            logger.info("Downloaded: %s", helpers.human_size(torrent_info['download_total']))
-            logger.info("Uploaded: %s", helpers.human_size(torrent_info['upload_total']))
-            logger.info("Ratio: %s", torrent_info['ratio'])
+            logger.fdebug("Directory: %s", torrent_info['folder'])
+            logger.fdebug("Name: %s", torrent_info['name'])
+            logger.fdebug("FileSize: %s", helpers.human_size(torrent_info['total_filesize']))
+            logger.fdebug("Completed: %s", torrent_info['completed'])
+            logger.fdebug("Downloaded: %s", helpers.human_size(torrent_info['download_total']))
+            logger.fdebug("Uploaded: %s", helpers.human_size(torrent_info['upload_total']))
+            logger.fdebug("Ratio: %s", torrent_info['ratio'])
             #logger.info("Time Started: %s", torrent_info['time_started'])
-            logger.info("Seeding Time: %s", helpers.humanize_time(int(time.time()) - torrent_info['time_started']))
+            logger.fdebug("Seeding Time: %s", helpers.humanize_time(int(time.time()) - torrent_info['time_started']))
 
             if torrent_info['label']:
-                logger.info("Torrent Label: %s", torrent_info['label'])
+                logger.fdebug("Torrent Label: %s", torrent_info['label'])
 
         #logger.info(torrent_info)
-        return torrent_info           
+        return torrent_info
 
     def get_the_hash(self, filepath):
-        import hashlib, StringIO
-        import rtorrent.lib.bencode as bencode
-
         # Open torrent file
         torrent_file = open(filepath, "rb")
         metainfo = bencode.decode(torrent_file.read())
         info = metainfo['info']
         thehash = hashlib.sha1(bencode.encode(info)).hexdigest().upper()
-        logger.info('Hash: ' + thehash)
+        logger.fdebug('Hash: ' + thehash)
         return thehash

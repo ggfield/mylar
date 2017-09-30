@@ -50,6 +50,7 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
 
     comic_list = []
     failure_list = []
+    utter_failure_list = []
     comiccnt = 0
     extensions = ('cbr','cbz')
     cv_location = []
@@ -70,75 +71,92 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
                 comicsize = os.path.getsize(comicpath)
                 logger.fdebug('Comic: ' + comic + ' [' + comicpath + '] - ' + str(comicsize) + ' bytes')
 
-                t = filechecker.FileChecker(dir=r, file=comic)
-                results = t.listFiles()
-                #logger.info(results)
-                #'type':           re.sub('\.','', filetype).strip(),
-                #'sub':            path_list,
-                #'volume':         volume,
-                #'match_type':     match_type,
-                #'comicfilename':  filename,
-                #'comiclocation':  clocation,
-                #'series_name':    series_name,
-                #'series_volume':  issue_volume,
-                #'series_year':    issue_year,
-                #'justthedigits':  issue_number,
-                #'annualcomicid':  annual_comicid,
-                #'scangroup':      scangroup}
+                try:
+                    t = filechecker.FileChecker(dir=r, file=comic)
+                    results = t.listFiles()
+
+                    #logger.info(results)
+                    #'type':           re.sub('\.','', filetype).strip(),
+                    #'sub':            path_list,
+                    #'volume':         volume,
+                    #'match_type':     match_type,
+                    #'comicfilename':  filename,
+                    #'comiclocation':  clocation,
+                    #'series_name':    series_name,
+                    #'series_volume':  issue_volume,
+                    #'series_year':    issue_year,
+                    #'justthedigits':  issue_number,
+                    #'annualcomicid':  annual_comicid,
+                    #'scangroup':      scangroup}
 
 
-                if results:
-                    resultline = '[PARSE-' + results['parse_status'].upper() + ']'
-                    resultline += '[SERIES: ' + results['series_name'] + ']'
-                    if results['series_volume'] is not None:
-                        resultline += '[VOLUME: ' + results['series_volume'] + ']'
-                    if results['issue_year'] is not None:
-                        resultline += '[ISSUE YEAR: ' + str(results['issue_year']) + ']'
-                    if results['issue_number'] is not None:
-                        resultline += '[ISSUE #: ' + results['issue_number'] + ']'
-                    logger.fdebug(resultline)
-                else:
-                    logger.fdebug('[PARSED] FAILURE.')
-                    continue
+                    if results:
+                        resultline = '[PARSE-' + results['parse_status'].upper() + ']'
+                        resultline += '[SERIES: ' + results['series_name'] + ']'
+                        if results['series_volume'] is not None:
+                            resultline += '[VOLUME: ' + results['series_volume'] + ']'
+                        if results['issue_year'] is not None:
+                            resultline += '[ISSUE YEAR: ' + str(results['issue_year']) + ']'
+                        if results['issue_number'] is not None:
+                            resultline += '[ISSUE #: ' + results['issue_number'] + ']'
+                        logger.fdebug(resultline)
+                    else:
+                        logger.fdebug('[PARSED] FAILURE.')
+                        continue
 
-                # We need the unicode path to use for logging, inserting into database
-                unicode_comic_path = comicpath.decode(mylar.SYS_ENCODING, 'replace')
+                    # We need the unicode path to use for logging, inserting into database
+                    unicode_comic_path = comicpath.decode(mylar.SYS_ENCODING, 'replace')
 
-                if results['parse_status'] == 'success':
-                    comic_list.append({'ComicFilename':           comic,
-                                       'ComicLocation':           comicpath,
-                                       'ComicSize':               comicsize,
-                                       'Unicode_ComicLocation':   unicode_comic_path,
-                                       'parsedinfo':              {'series_name':    results['series_name'],
-                                                                   'series_volume':  results['series_volume'],
-                                                                   'issue_year':     results['issue_year'],
-                                                                   'issue_number':   results['issue_number']}
-                                       })
-                    comiccnt +=1
-                    mylar.IMPORT_PARSED_COUNT +=1
-                else:
-                    failure_list.append({'ComicFilename':           comic,
-                                         'ComicLocation':           comicpath,
-                                         'ComicSize':               comicsize,
-                                         'Unicode_ComicLocation':   unicode_comic_path,
-                                         'parsedinfo':              {'series_name':    results['series_name'],
-                                                                     'series_volume':  results['series_volume'],
-                                                                     'issue_year':     results['issue_year'],
-                                                                     'issue_number':   results['issue_number']}
-                                       })
+                    if results['parse_status'] == 'success':
+                        comic_list.append({'ComicFilename':           comic,
+                                           'ComicLocation':           comicpath,
+                                           'ComicSize':               comicsize,
+                                           'Unicode_ComicLocation':   unicode_comic_path,
+                                           'parsedinfo':              {'series_name':    results['series_name'],
+                                                                       'series_volume':  results['series_volume'],
+                                                                       'issue_year':     results['issue_year'],
+                                                                       'issue_number':   results['issue_number']}
+                                           })
+                        comiccnt +=1
+                        mylar.IMPORT_PARSED_COUNT +=1
+                    else:
+                        failure_list.append({'ComicFilename':           comic,
+                                             'ComicLocation':           comicpath,
+                                             'ComicSize':               comicsize,
+                                             'Unicode_ComicLocation':   unicode_comic_path,
+                                             'parsedinfo':              {'series_name':    results['series_name'],
+                                                                         'series_volume':  results['series_volume'],
+                                                                         'issue_year':     results['issue_year'],
+                                                                         'issue_number':   results['issue_number']}
+                                           })
+                        mylar.IMPORT_FAILURE_COUNT +=1
+                        if comic.endswith('.cbz'):
+                            cbz_retry +=1
+
+                except Exception, e:
+                    logger.info('bang')
+                    utter_failure_list.append({'ComicFilename':           comic,
+                                               'ComicLocation':           comicpath,
+                                               'ComicSize':               comicsize,
+                                               'Unicode_ComicLocation':   unicode_comic_path,
+                                               'parsedinfo':              None,
+                                               'error':                   e
+                                             })
+                    logger.info('[' + str(e) + '] FAILURE encountered. Logging the error for ' + comic + ' and continuing...')
                     mylar.IMPORT_FAILURE_COUNT +=1
                     if comic.endswith('.cbz'):
                         cbz_retry +=1
-
+                    continue
 
     mylar.IMPORT_TOTALFILES = comiccnt
     logger.info('I have successfully discovered & parsed a total of ' + str(comiccnt) + ' files....analyzing now')
     logger.info('I have not been able to determine what ' + str(len(failure_list)) + ' files are')
-    logger.info('However, ' + str(cbz_retry) + ' files are in a cbz format, which may contain metadata.')
-
+    logger.info('However, ' + str(cbz_retry) + ' out of the ' + str(len(failure_list)) + ' files are in a cbz format, which may contain metadata.')
+    logger.info('[ERRORS] I have encountered ' + str(len(utter_failure_list)) + ' file-scanning errors during the scan, but have recorded the necessary information.')
     mylar.IMPORT_STATUS = 'Successfully parsed ' + str(comiccnt) + ' files'
     #return queue.put(valreturn)
 
+    logger.fdebug(utter_failure_list)
     myDB = db.DBConnection()
 
     #let's load in the watchlist to see if we have any matches.
@@ -253,146 +271,156 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             if i['ComicLocation'].endswith('.cbz'):
                 logger.fdebug('[IMPORT-CBZ] Metatagging checking enabled.')
                 logger.info('[IMPORT-CBZ} Attempting to read tags present in filename: ' + i['ComicLocation'])
-                issueinfo = helpers.IssueDetails(i['ComicLocation'])
-                logger.info('issueinfo: ' + str(issueinfo))
-                if issueinfo is None:
-                    logger.fdebug('[IMPORT-CBZ] No valid metadata contained within filename. Dropping down to parsing the filename itself.')
+                try:
+                    issueinfo = helpers.IssueDetails(i['ComicLocation'], justinfo=True)
+                except:
+                    logger.fdebug('[IMPORT-CBZ] Unable to retrieve metadata - possibly doesn\'t exist. Ignoring meta-retrieval')
                     pass
                 else:
-                    issuenotes_id = None
-                    logger.info('[IMPORT-CBZ] Successfully retrieved some tags. Lets see what I can figure out.')
-                    comicname = issueinfo[0]['series']
-                    if comicname is not None:
-                        logger.fdebug('[IMPORT-CBZ] Series Name: ' + comicname)
-                        as_d = filechecker.FileChecker()
-                        as_dyninfo = as_d.dynamic_replace(comicname)
-                        logger.fdebug('Dynamic-ComicName: ' + as_dyninfo['mod_seriesname'])
-                    else:
-                        logger.fdebug('[IMPORT-CBZ] No series name found within metadata. This is bunk - dropping down to file parsing for usable information.')
-                        issueinfo = None
-                        issue_number = None
+                    logger.info('issueinfo: ' + str(issueinfo))
 
-                    if issueinfo is not None:
-                        try:
-                            issueyear = issueinfo[0]['year']
-                        except:
-                            issueyear = None
-
-                        #if the issue number is a non-numeric unicode string, this will screw up along with impID
-                        issue_number = issueinfo[0]['issue_number']
-                        if issue_number is not None:
-                            logger.fdebug('[IMPORT-CBZ] Issue Number: ' + issue_number)
-                        else:
-                            issue_number = i['parsed']['issue_number']
-
-                        if 'annual' in comicname.lower() or 'annual' in comfilename.lower():
-                            if issue_number is None or issue_number == 'None':
-                                logger.info('Annual detected with no issue number present within metadata. Assuming year as issue.')
-                                try:
-                                    issue_number = 'Annual ' + str(issueyear)
-                                except:
-                                     issue_number = 'Annual ' + i['parsed']['issue_year']
-                            else:
-                                logger.info('Annual detected with issue number present within metadata.')
-                                if 'annual' not in issue_number.lower():
-                                    issue_number = 'Annual ' + issue_number
-                            mod_series = re.sub('annual', '', comicname, flags=re.I).strip()
-                        else:
-                            mod_series = comicname
-
-                        logger.fdebug('issue number SHOULD Be: ' + issue_number)
-
-                        try:
-                            issuetitle = issueinfo[0]['title']
-                        except:
-                            issuetitle = None
-                        try:
-                            issueyear = issueinfo[0]['year']
-                        except:
-                            issueyear = None
-                        try:
-                            issuevolume = str(issueinfo[0]['volume'])
-                            if all([issuevolume is not None, issuevolume != 'None']) and not issuevolume.lower().startswith('v'):
-                                issuevolume = 'v' + str(issuevolume)
-                            logger.fdebug('[TRY]issue volume is: ' + str(issuevolume))
-                        except:
-                            logger.fdebug('[EXCEPT]issue volume is: ' + str(issuevolume))
-                            issuevolume = None
-
-                    if any([comicname is None, comicname == 'None', issue_number is None, issue_number == 'None']):
-                        logger.fdebug('[IMPORT-CBZ] Improperly tagged file as the metatagging is invalid. Ignoring meta and just parsing the filename.')
-                        issueinfo = None
+                    if issueinfo is None:
+                        logger.fdebug('[IMPORT-CBZ] No valid metadata contained within filename. Dropping down to parsing the filename itself.')
                         pass
                     else:
-                        # if used by ComicTagger, Notes field will have the IssueID.
-                        issuenotes = issueinfo[0]['notes']
-                        logger.fdebug('[IMPORT-CBZ] Notes: ' + issuenotes)
-                        if issuenotes is not None and issuenotes != 'None':
-                            if 'Issue ID' in issuenotes:
-                                st_find = issuenotes.find('Issue ID')
-                                tmp_issuenotes_id = re.sub("[^0-9]", " ", issuenotes[st_find:]).strip()
-                                if tmp_issuenotes_id.isdigit():
-                                    issuenotes_id = tmp_issuenotes_id
-                                    logger.fdebug('[IMPORT-CBZ] Successfully retrieved CV IssueID for ' + comicname + ' #' + issue_number + ' [' + str(issuenotes_id) + ']')
-                            elif 'CVDB' in issuenotes:
-                                st_find = issuenotes.find('CVDB')
-                                tmp_issuenotes_id = re.sub("[^0-9]", " ", issuenotes[st_find:]).strip()
-                                if tmp_issuenotes_id.isdigit():
-                                    issuenotes_id = tmp_issuenotes_id
-                                    logger.fdebug('[IMPORT-CBZ] Successfully retrieved CV IssueID for ' + comicname + ' #' + issue_number + ' [' + str(issuenotes_id) + ']')
-                            else:
-                                logger.fdebug('[IMPORT-CBZ] Unable to retrieve IssueID from meta-tagging. If there is other metadata present I will use that.')
+                        issuenotes_id = None
+                        logger.info('[IMPORT-CBZ] Successfully retrieved some tags. Lets see what I can figure out.')
+                        comicname = issueinfo[0]['series']
+                        if comicname is not None:
+                            logger.fdebug('[IMPORT-CBZ] Series Name: ' + comicname)
+                            as_d = filechecker.FileChecker()
+                            as_dyninfo = as_d.dynamic_replace(comicname)
+                            logger.fdebug('Dynamic-ComicName: ' + as_dyninfo['mod_seriesname'])
+                        else:
+                            logger.fdebug('[IMPORT-CBZ] No series name found within metadata. This is bunk - dropping down to file parsing for usable information.')
+                            issueinfo = None
+                            issue_number = None
 
-                        logger.fdebug('[IMPORT-CBZ] Adding ' + comicname + ' to the import-queue!')
-                        #impid = comicname + '-' + str(issueyear) + '-' + str(issue_number) #com_NAME + "-" + str(result_comyear) + "-" + str(comiss)
-                        impid = str(random.randint(1000000,99999999))
-                        logger.fdebug('[IMPORT-CBZ] impid: ' + str(impid))
-                        #make sure we only add in those issueid's which don't already have a comicid attached via the cvinfo scan above (this is for reverse-lookup of issueids)
-                        issuepopulated = False
-                        if cvinfo_CID is None:
-                            if issuenotes_id is None:
-                                logger.info('[IMPORT-CBZ] No ComicID detected where it should be. Bypassing this metadata entry and going the parsing route [' + comfilename + ']')
-                            else:
-                                #we need to store the impid here as well so we can look it up.
-                                issueid_list.append({'issueid':    issuenotes_id,
-                                                     'importinfo': {'impid':       impid,
-                                                                    'comicid':     None,
-                                                                    'comicname':   comicname,
-                                                                    'dynamicname': as_dyninfo['mod_seriesname'],
-                                                                    'comicyear':   issueyear,
-                                                                    'issuenumber': issue_number,
-                                                                    'volume':      issuevolume,
-                                                                    'comfilename': comfilename,
-                                                                    'comlocation': comlocation.decode(mylar.SYS_ENCODING)}
-                                                     })
-                                mylar.IMPORT_CID_COUNT +=1
-                                issuepopulated = True
+                        if issueinfo is not None:
+                            try:
+                                issueyear = issueinfo[0]['year']
+                            except:
+                                issueyear = None
 
-                        if issuepopulated == False:
-                            if cvscanned_loc == os.path.dirname(comlocation):
-                                cv_cid = cvinfo_CID
-                                logger.fdebug('[IMPORT-CBZ] CVINFO_COMICID attached : ' + str(cv_cid))
+                            #if the issue number is a non-numeric unicode string, this will screw up along with impID
+                            issue_number = issueinfo[0]['issue_number']
+                            if issue_number is not None:
+                                logger.fdebug('[IMPORT-CBZ] Issue Number: ' + issue_number)
                             else:
-                                cv_cid = None
-                            import_by_comicids.append({
-                                "impid": impid,
-                                "comicid": cv_cid,
-                                "watchmatch": None,
-                                "displayname": mod_series,
-                                "comicname": comicname,
-                                "dynamicname": as_dyninfo['mod_seriesname'],
-                                "comicyear": issueyear,
-                                "issuenumber": issue_number,
-                                "volume": issuevolume,
-                                "issueid": issuenotes_id,
-                                "comfilename": comfilename,
-                                "comlocation": comlocation.decode(mylar.SYS_ENCODING)
-                                               })
+                                issue_number = i['parsed']['issue_number']
 
-                            mylar.IMPORT_CID_COUNT +=1
-            else:
-                pass            
-                #logger.fdebug(i['ComicFilename'] + ' is not in a metatagged format (cbz). Bypassing reading of the metatags')
+                            if 'annual' in comicname.lower() or 'annual' in comfilename.lower():
+                                if issue_number is None or issue_number == 'None':
+                                    logger.info('Annual detected with no issue number present within metadata. Assuming year as issue.')
+                                    try:
+                                        issue_number = 'Annual ' + str(issueyear)
+                                    except:
+                                        issue_number = 'Annual ' + i['parsed']['issue_year']
+                                else:
+                                    logger.info('Annual detected with issue number present within metadata.')
+                                    if 'annual' not in issue_number.lower():
+                                        issue_number = 'Annual ' + issue_number
+                                mod_series = re.sub('annual', '', comicname, flags=re.I).strip()
+                            else:
+                                mod_series = comicname
+
+                            logger.fdebug('issue number SHOULD Be: ' + issue_number)
+
+                            try:
+                                issuetitle = issueinfo[0]['title']
+                            except:
+                                issuetitle = None
+                            try:
+                                issueyear = issueinfo[0]['year']
+                            except:
+                                issueyear = None
+                            try:
+                                issuevolume = str(issueinfo[0]['volume'])
+                                if all([issuevolume is not None, issuevolume != 'None', not issuevolume.lower().startswith('v')]):
+                                    issuevolume = 'v' + str(issuevolume)
+                                if any([issuevolume is None, issuevolume == 'None']):
+                                    logger.info('EXCEPT] issue volume is NONE')
+                                    issuevolume = None
+                                else:
+                                    logger.fdebug('[TRY]issue volume is: ' + str(issuevolume))
+                            except:
+                                logger.fdebug('[EXCEPT]issue volume is: ' + str(issuevolume))
+                                issuevolume = None
+
+                            if any([comicname is None, comicname == 'None', issue_number is None, issue_number == 'None']):
+                                logger.fdebug('[IMPORT-CBZ] Improperly tagged file as the metatagging is invalid. Ignoring meta and just parsing the filename.')
+                                issueinfo = None
+                                pass
+                            else:
+                                # if used by ComicTagger, Notes field will have the IssueID.
+                                issuenotes = issueinfo[0]['notes']
+                                logger.fdebug('[IMPORT-CBZ] Notes: ' + issuenotes)
+                                if issuenotes is not None and issuenotes != 'None':
+                                    if 'Issue ID' in issuenotes:
+                                        st_find = issuenotes.find('Issue ID')
+                                        tmp_issuenotes_id = re.sub("[^0-9]", " ", issuenotes[st_find:]).strip()
+                                        if tmp_issuenotes_id.isdigit():
+                                            issuenotes_id = tmp_issuenotes_id
+                                            logger.fdebug('[IMPORT-CBZ] Successfully retrieved CV IssueID for ' + comicname + ' #' + issue_number + ' [' + str(issuenotes_id) + ']')
+                                    elif 'CVDB' in issuenotes:
+                                        st_find = issuenotes.find('CVDB')
+                                        tmp_issuenotes_id = re.sub("[^0-9]", " ", issuenotes[st_find:]).strip()
+                                        if tmp_issuenotes_id.isdigit():
+                                            issuenotes_id = tmp_issuenotes_id
+                                            logger.fdebug('[IMPORT-CBZ] Successfully retrieved CV IssueID for ' + comicname + ' #' + issue_number + ' [' + str(issuenotes_id) + ']')
+                                    else:
+                                        logger.fdebug('[IMPORT-CBZ] Unable to retrieve IssueID from meta-tagging. If there is other metadata present I will use that.')
+
+                                logger.fdebug('[IMPORT-CBZ] Adding ' + comicname + ' to the import-queue!')
+                                #impid = comicname + '-' + str(issueyear) + '-' + str(issue_number) #com_NAME + "-" + str(result_comyear) + "-" + str(comiss)
+                                impid = str(random.randint(1000000,99999999))
+                                logger.fdebug('[IMPORT-CBZ] impid: ' + str(impid))
+                                #make sure we only add in those issueid's which don't already have a comicid attached via the cvinfo scan above (this is for reverse-lookup of issueids)
+                                issuepopulated = False
+                                if cvinfo_CID is None:
+                                    if issuenotes_id is None:
+                                        logger.info('[IMPORT-CBZ] No ComicID detected where it should be. Bypassing this metadata entry and going the parsing route [' + comfilename + ']')
+                                    else:
+                                        #we need to store the impid here as well so we can look it up.
+                                        issueid_list.append({'issueid':    issuenotes_id,
+                                                             'importinfo': {'impid':       impid,
+                                                                            'comicid':     None,
+                                                                            'comicname':   comicname,
+                                                                            'dynamicname': as_dyninfo['mod_seriesname'],
+                                                                            'comicyear':   issueyear,
+                                                                            'issuenumber': issue_number,
+                                                                            'volume':      issuevolume,
+                                                                            'comfilename': comfilename,
+                                                                            'comlocation': comlocation.decode(mylar.SYS_ENCODING)}
+                                                             })
+                                        mylar.IMPORT_CID_COUNT +=1
+                                        issuepopulated = True
+
+                                if issuepopulated == False:
+                                    if cvscanned_loc == os.path.dirname(comlocation):
+                                        cv_cid = cvinfo_CID
+                                        logger.fdebug('[IMPORT-CBZ] CVINFO_COMICID attached : ' + str(cv_cid))
+                                    else:
+                                        cv_cid = None
+                                    import_by_comicids.append({
+                                        "impid": impid,
+                                        "comicid": cv_cid,
+                                        "watchmatch": None,
+                                        "displayname": mod_series,
+                                        "comicname": comicname,
+                                        "dynamicname": as_dyninfo['mod_seriesname'],
+                                        "comicyear": issueyear,
+                                        "issuenumber": issue_number,
+                                        "volume": issuevolume,
+                                        "issueid": issuenotes_id,
+                                        "comfilename": comfilename,
+                                        "comlocation": comlocation.decode(mylar.SYS_ENCODING)
+                                                       })
+
+                                    mylar.IMPORT_CID_COUNT +=1
+                        else:
+                            pass            
+                            #logger.fdebug(i['ComicFilename'] + ' is not in a metatagged format (cbz). Bypassing reading of the metatags')
 
         if issueinfo is None:
             if i['parsedinfo']['issue_number'] is None:
@@ -577,7 +605,8 @@ def libraryScan(dir=None, append=False, ComicID=None, ComicName=None, cron=None,
             'CV_import_comicids':  cvimport_comicids,
             'import_cv_ids':       import_cv_ids,
             'issueid_list':        issueid_list,
-            'failure_list':        failure_list}
+            'failure_list':        failure_list,
+            'utter_failure_list':  utter_failure_list}
 
 
 def scanLibrary(scan=None, queue=None):
@@ -605,7 +634,8 @@ def scanLibrary(scan=None, queue=None):
             logger.info('[IMPORT-BREAKDOWN] Files with ComicIDs successfully extracted: ' + str(soma['import_cv_ids']))
             logger.info('[IMPORT-BREAKDOWN] Files that had to be parsed: ' + str(soma['import_count']))
             logger.info('[IMPORT-BREAKDOWN] Files that were unable to be parsed: ' + str(len(soma['failure_list'])))
-            logger.info('[IMPORT-BREAKDOWN] Failure Files: ' + str(soma['failure_list']))
+            logger.info('[IMPORT-BREAKDOWN] Files that caused errors during the import: ' + str(len(soma['utter_failure_list'])))
+            #logger.info('[IMPORT-BREAKDOWN] Failure Files: ' + str(soma['failure_list']))
       
             myDB = db.DBConnection()
 

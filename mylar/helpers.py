@@ -1,4 +1,5 @@
 #  This file is part of Mylar.
+# -*- coding: utf-8 -*-
 #
 #  Mylar is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -16,11 +17,18 @@
 import time
 from operator import itemgetter
 import datetime
+from datetime import timedelta, date
+import subprocess
+import shlex
+import json
 import re
+import sys
 import platform
+import calendar
 import itertools
 import shutil
 import os, errno
+from apscheduler.triggers.interval import IntervalTrigger
 import mylar
 import logger
 
@@ -121,6 +129,9 @@ def today():
 def now():
     now = datetime.datetime.now()
     return now.strftime("%Y-%m-%d %H:%M:%S")
+
+def utctimestamp():
+    return time.time()
 
 def bytes_to_mb(bytes):
 
@@ -246,8 +257,12 @@ def decimal_issue(iss):
 def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=None, annualize=None, arc=False):
             import db, logger
             myDB = db.DBConnection()
-            logger.fdebug('comicid: ' + str(comicid))
-            logger.fdebug('issue#: ' + str(issue))
+            comicid = str(comicid)   # it's coming in unicoded...
+
+            logger.fdebug(type(comicid))
+            logger.fdebug(type(issueid))
+            logger.fdebug('comicid: %s' % comicid)
+            logger.fdebug('issue# as per cv: %s' % issue)
             # the issue here is a non-decimalized version, we need to see if it's got a decimal and if not, add '.00'
 #            iss_find = issue.find('.')
 #            if iss_find < 0:
@@ -274,7 +289,7 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                     #this has to be adjusted to be able to include story arc issues that span multiple arcs
                     chkissue = myDB.selectone("SELECT * from readinglist WHERE ComicID=? AND Issue_Number=?", [comicid, issue]).fetchone()
                 else:
-                    if annualize is None:
+                    if all([annualize is None, not mylar.ANNUALS_ON]):
                         chkissue = myDB.selectone("SELECT * from issues WHERE ComicID=? AND Issue_Number=?", [comicid, issue]).fetchone()
                     else:
                         chkissue = myDB.selectone("SELECT * from annuals WHERE ComicID=? AND Issue_Number=?", [comicid, issue]).fetchone()
@@ -285,13 +300,12 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                         chkissue = myDB.selectone("SELECT * from readinglist WHERE ComicID=? AND Int_IssueNumber=?", [comicid, issuedigits(issue)]).fetchone()
                     else:
                         chkissue = myDB.selectone("SELECT * from issues WHERE ComicID=? AND Int_IssueNumber=?", [comicid, issuedigits(issue)]).fetchone()
-                        if annualize:
+                        if all([annualize == 'yes', mylar.ANNUALS_ON]):
                             chkissue = myDB.selectone("SELECT * from annuals WHERE ComicID=? AND Int_IssueNumber=?", [comicid, issuedigits(issue)]).fetchone()
 
                     if chkissue is None:
-                        if chkissue is None:
-                            logger.error('Invalid Issue_Number - please validate.')
-                            return
+                        logger.error('Invalid Issue_Number - please validate.')
+                        return
                     else:
                         logger.info('Int Issue_number compare found. continuing...')
                         issueid = chkissue['IssueID']
@@ -353,6 +367,17 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                 comlocation = comicnzb['ComicLocation']
                 comversion = comicnzb['ComicVersion']
 
+            unicodeissue = issuenum
+
+            if type(issuenum) == unicode:
+               vals = {u'\xbd':'.5',u'\xbc':'.25',u'\xbe':'.75',u'\u221e':'9999999999',u'\xe2':'9999999999'}
+            else:
+               vals = {'\xbd':'.5','\xbc':'.25','\xbe':'.75','\u221e':'9999999999','\xe2':'9999999999'}
+            x = [vals[key] for key in vals if key in issuenum]
+            if x:
+                issuenum = x[0]
+                logger.fdebug('issue number formatted: %s' % issuenum)
+
             #comicid = issuenzb['ComicID']
             #issueno = str(issuenum).split('.')[0]
             issue_except = 'None'
@@ -360,6 +385,7 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                                 'INH',
                                 'NOW',
                                 'AI',
+                                'MU',
                                 'A',
                                 'B',
                                 'C',
@@ -369,7 +395,9 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
             for issexcept in issue_exceptions:
                 if issexcept.lower() in issuenum.lower():
                     logger.fdebug('ALPHANUMERIC EXCEPTION : [' + issexcept + ']')
-                    if any(v in issuenum for v in valid_spaces):
+                    v_chk = [v for v in valid_spaces if v in issuenum]
+                    if v_chk:
+                        iss_space = v_chk[0]
                         logger.fdebug('character space denoted as : ' + iss_space)
                     else:
                         logger.fdebug('character space not denoted.')
@@ -397,18 +425,18 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
 #                if '!' in issuenum: issuenum = re.sub('\!', '', issuenum)
 #                issuenum = re.sub("[^0-9]", "", issuenum)
 #                issue_except = '.NOW'
-
             if '.' in issuenum:
                 iss_find = issuenum.find('.')
                 iss_b4dec = issuenum[:iss_find]
+                if iss_find == 0:
+                    iss_b4dec = '0'
                 iss_decval = issuenum[iss_find +1:]
                 if iss_decval.endswith('.'):
                     iss_decval = iss_decval[:-1]
                 if int(iss_decval) == 0:
                     iss = iss_b4dec
                     issdec = int(iss_decval)
-                    issueno = str(iss)
-                    logger.fdebug('Issue Number: ' + str(issueno))
+                    issueno = iss
                 else:
                     if len(iss_decval) == 1:
                         iss = iss_b4dec + "." + iss_decval
@@ -417,12 +445,9 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                         iss = iss_b4dec + "." + iss_decval.rstrip('0')
                         issdec = int(iss_decval.rstrip('0')) * 10
                     issueno = iss_b4dec
-                    logger.fdebug('Issue Number: ' + str(iss))
             else:
                 iss = issuenum
-                issueno = str(iss)
-            logger.fdebug('iss:' + str(iss))
-            logger.fdebug('issueno:' + str(issueno))
+                issueno = iss
             # issue zero-suppression here
             if mylar.ZERO_LEVEL == "0":
                 zeroadd = ""
@@ -439,17 +464,20 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                 prettycomiss = str(issueno)
             else:
                 try:
-                    x = float(issueno)
+                    x = float(issuenum)
                     #validity check
                     if x < 0:
-                        logger.info('I\'ve encountered a negative issue #: ' + str(issueno) + '. Trying to accomodate.')
+                        logger.info('I\'ve encountered a negative issue #: %s. Trying to accomodate.' % issueno)
                         prettycomiss = '-' + str(zeroadd) + str(issueno[1:])
+                    elif x == 9999999999:
+                        logger.fdebug('Infinity issue found.')
+                        issuenum = 'infinity'
                     elif x >= 0:
                         pass
                     else:
                         raise ValueError
                 except ValueError, e:
-                    logger.warn('Unable to properly determine issue number [' + str(issueno) + '] - you should probably log this on github for help.')
+                    logger.warn('Unable to properly determine issue number [ %s] - you should probably log this on github for help.' % issueno)
                     return
 
             if prettycomiss is None and len(str(issueno)) > 0:
@@ -488,10 +516,13 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                     logger.fdebug('Zero level supplement set to ' + str(mylar.ZERO_LEVEL_N) + '.Issue will be set as : ' + str(prettycomiss))
                 else:
                     logger.fdebug('issue detected greater than 100')
-                    if '.' in iss:
-                        if int(iss_decval) > 0:
-                            issueno = str(iss)
-                    prettycomiss = str(issueno)
+                    if issuenum == 'infinity':
+                        prettycomiss = 'infinity'
+                    else:
+                        if '.' in iss:
+                            if int(iss_decval) > 0:
+                                issueno = str(iss)
+                        prettycomiss = str(issueno)
                     if issue_except != 'None':
                         prettycomiss = str(prettycomiss) + issue_except
                     logger.fdebug('Zero level supplement set to ' + str(mylar.ZERO_LEVEL_N) + '. Issue will be set as : ' + str(prettycomiss))
@@ -500,16 +531,20 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                 logger.fdebug('issue length error - cannot determine length. Defaulting to None:  ' + str(prettycomiss))
 
             logger.fdebug('Pretty Comic Issue is : ' + str(prettycomiss))
+            if mylar.UNICODE_ISSUENUMBER:
+                logger.fdebug('Setting this to Unicode format as requested: %s' % prettycomiss)
+                prettycomiss = unicodeissue
+
             issueyear = issuedate[:4]
             month = issuedate[5:7].replace('-', '').strip()
             month_name = fullmonth(month)
             if month_name is None:
                 month_name = 'None'
             logger.fdebug('Issue Year : ' + str(issueyear))
-            logger.fdebug('Publisher: ' + str(publisher))
-            logger.fdebug('Series: ' + str(series))
+            logger.fdebug('Publisher: ' + publisher)
+            logger.fdebug('Series: ' + series)
             logger.fdebug('Year: '  + str(seriesyear))
-            logger.fdebug('Comic Location: ' + str(comlocation))
+            logger.fdebug('Comic Location: ' + comlocation)
             if comversion is None:
                 comversion = 'None'
             #if comversion is None, remove it so it doesn't populate with 'None'
@@ -537,21 +572,21 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                         #if it's an annual, but $annual isn't specified in file_format, we need to
                         #force it in there, by default in the format of $Annual $Issue
                             #prettycomiss = "Annual " + str(prettycomiss)
-                            logger.fdebug('[' + series + '][ANNUALS-ON][ANNUAL IN SERIES][NOT $ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            logger.fdebug('[%s][ANNUALS-ON][ANNUAL IN SERIES][NO ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
                         else:
                             #because it exists within title, strip it then use formatting tag for placement of wording.
                             chunk_f_f = re.sub('\$Annual', '', chunk_file_format)
                             chunk_f = re.compile(r'\s+')
                             chunk_file_format = chunk_f.sub(' ', chunk_f_f)
-                            logger.fdebug('[' + series + '][ANNUALS-ON][ANNUAL IN SERIES][$ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            logger.fdebug('[%s][ANNUALS-ON][ANNUAL IN SERIES][ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
                     else:
                         if '$Annual' not in chunk_file_format: # and 'annual' not in ofilename.lower():
                         #if it's an annual, but $annual isn't specified in file_format, we need to
                         #force it in there, by default in the format of $Annual $Issue
-                            prettycomiss = "Annual " + str(prettycomiss)
-                            logger.fdebug('[' + series + '][ANNUALS-ON][ANNUAL NOT IN SERIES][NOT $ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            prettycomiss = "Annual %s" % prettycomiss
+                            logger.fdebug('[%s][ANNUALS-ON][ANNUAL NOT IN SERIES][NO ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
                         else:
-                            logger.fdebug('[' + series + '][ANNUALS-ON][ANNUAL NOT IN SERIES][$ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            logger.fdebug('[%s][ANNUALS-ON][ANNUAL NOT IN SERIES][ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
 
                 else:
                     #if annuals aren't enabled, then annuals are being tracked as independent series.
@@ -561,21 +596,21 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                         #if it's an annual, but $annual isn't specified in file_format, we need to
                         #force it in there, by default in the format of $Annual $Issue
                             #prettycomiss = "Annual " + str(prettycomiss)
-                            logger.fdebug('[' + series + '][ANNUALS-OFF][ANNUAL IN SERIES][NOT $ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            logger.fdebug('[%s][ANNUALS-OFF][ANNUAL IN SERIES][NO ANNUAL FORMAT] prettycomiss: %s' (series, prettycomiss))
                         else:
                             #because it exists within title, strip it then use formatting tag for placement of wording.
                             chunk_f_f = re.sub('\$Annual', '', chunk_file_format)
                             chunk_f = re.compile(r'\s+')
                             chunk_file_format = chunk_f.sub(' ', chunk_f_f)
-                            logger.fdebug('[' + series + '][ANNUALS-OFF][ANNUAL IN SERIES][$ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            logger.fdebug('[%s][ANNUALS-OFF][ANNUAL IN SERIES][ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
                     else:
                         if '$Annual' not in chunk_file_format: # and 'annual' not in ofilename.lower():
                             #if it's an annual, but $annual isn't specified in file_format, we need to
                             #force it in there, by default in the format of $Annual $Issue
-                            prettycomiss = "Annual " + str(prettycomiss)
-                            logger.fdebug('[' + series + '][ANNUALS-OFF][ANNUAL NOT IN SERIES][NOT $ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            prettycomiss = "Annual %s" % prettycomiss
+                            logger.fdebug('[%s][ANNUALS-OFF][ANNUAL NOT IN SERIES][NO ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
                         else:
-                            logger.fdebug('[' + series + '][ANNUALS-OFF][ANNUAL NOT IN SERIES][$ANNUAL] prettycomiss: ' + str(prettycomiss))
+                            logger.fdebug('[%s][ANNUALS-OFF][ANNUAL NOT IN SERIES][ANNUAL FORMAT] prettycomiss: %s' % (series, prettycomiss))
 
 
                     logger.fdebug('Annual detected within series title of ' + series + '. Not auto-correcting issue #')
@@ -625,20 +660,20 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                     nfilename = nfilename.replace(' ', mylar.REPLACE_CHAR)
 
             nfilename = re.sub('[\,\:]', '', nfilename) + ext.lower()
-            logger.fdebug('New Filename: ' + str(nfilename))
+            logger.fdebug('New Filename: ' + nfilename)
 
             if mylar.LOWERCASE_FILENAMES:
                 dst = os.path.join(comlocation, nfilename.lower())
             else:
                 dst = os.path.join(comlocation, nfilename)
 
-            logger.fdebug('Source: ' + str(ofilename))
-            logger.fdebug('Destination: ' + str(dst))
+            logger.fdebug('Source: ' + ofilename)
+            logger.fdebug('Destination: ' + dst)
 
             rename_this = {"destination_dir": dst,
-                            "nfilename": nfilename,
-                            "issueid": issueid,
-                            "comicid": comicid}
+                           "nfilename": nfilename,
+                           "issueid": issueid,
+                           "comicid": comicid}
 
             return rename_this
 
@@ -863,7 +898,7 @@ def cleanhtml(raw_html):
 
     VALID_TAGS = ['div', 'p']
 
-    soup = BeautifulSoup(raw_html)
+    soup = BeautifulSoup(raw_html, "html.parser")
 
     for tag in soup.findAll('p'):
         if tag.name not in VALID_TAGS:
@@ -922,6 +957,12 @@ def issuedigits(issnum):
                     int_issnum = (int(issnum[:-3]) * 1000) + ord('n') + ord('o') + ord('w')
                 else:
                     int_issnum = (int(issnum[:-4]) * 1000) + ord('n') + ord('o') + ord('w')
+            elif 'mu' in issnum.lower():
+                remdec = issnum.find('.')
+                if remdec == -1:
+                    int_issnum = (int(issnum[:-2]) * 1000) + ord('m') + ord('u')
+                else:
+                    int_issnum = (int(issnum[:-3]) * 1000) + ord('m') + ord('u')
 
         except ValueError as e:
             logger.error('[' + issnum + '] Unable to properly determine the issue number. Error: %s', e)
@@ -950,9 +991,9 @@ def issuedigits(issnum):
         x = [vals[key] for key in vals if key in issnum]
 
         if x:
-            logger.fdebug('Unicode Issue present - adjusting.')
+            #logger.fdebug('Unicode Issue present - adjusting.')
             int_issnum = x[0] * 1000
-            logger.fdebug('int_issnum: ' + str(int_issnum))
+            #logger.fdebug('int_issnum: ' + str(int_issnum))
         else:
             if any(['.' in issnum, ',' in issnum]):
                 #logger.fdebug('decimal detected.')
@@ -1203,14 +1244,20 @@ def upgrade_dynamic():
     mylar.config_write()
     return
 
-def checkFolder():
+def checkFolder(folderpath=None):
     from mylar import PostProcessor, logger
     import Queue
 
     queue = Queue.Queue()
     #monitor a selected folder for 'snatched' files that haven't been processed
-    logger.info('Checking folder ' + mylar.CHECK_FOLDER + ' for newly snatched downloads')
-    PostProcess = PostProcessor.PostProcessor('Manual Run', mylar.CHECK_FOLDER, queue=queue)
+    if folderpath is None:
+        logger.info('Checking folder ' + mylar.CHECK_FOLDER + ' for newly snatched downloads')
+        path = mylar.CHECK_FOLDER
+    else:
+        logger.info('Submitted folder ' + folderpath + ' for direct folder post-processing')
+        path = folderpath
+
+    PostProcess = PostProcessor.PostProcessor('Manual Run', path, queue=queue)
     vals = PostProcess.Process()
     return
 
@@ -1253,34 +1300,31 @@ def havetotals(refreshit=None):
         myDB = db.DBConnection()
 
         if refreshit is None:
-            comiclist = myDB.select('SELECT * from comics order by ComicSortName COLLATE NOCASE')
+            if mylar.ANNUALS_ON:
+                comiclist = myDB.select('SELECT comics.*, COUNT(totalAnnuals.IssueID) AS TotalAnnuals FROM comics LEFT JOIN annuals as totalAnnuals on totalAnnuals.ComicID = comics.ComicID GROUP BY comics.ComicID order by comics.ComicSortName COLLATE NOCASE')
+            else:
+                comiclist = myDB.select('SELECT * FROM comics GROUP BY ComicID order by ComicSortName COLLATE NOCASE')
         else:
             comiclist = []
-            comicref = myDB.selectone("SELECT * from comics WHERE ComicID=?", [refreshit]).fetchone()
+            comicref = myDB.selectone('SELECT comics.ComicID AS ComicID, comics.Have AS Have, comics.Total as Total, COUNT(totalAnnuals.IssueID) AS TotalAnnuals FROM comics LEFT JOIN annuals as totalAnnuals on totalAnnuals.ComicID = comics.ComicID WHERE comics.ComicID=? GROUP BY comics.ComicID', [refreshit]).fetchone()
             #refreshit is the ComicID passed from the Refresh Series to force/check numerical have totals
-            comiclist.append({"ComicID":  comicref[0],
-                              "Have":     comicref[7],
-                              "Total":   comicref[8]})
+            comiclist.append({"ComicID":      comicref['ComicID'],
+                              "Have":         comicref['Have'],
+                              "Total":        comicref['Total'],
+                              "TotalAnnuals": comicref['TotalAnnuals']})
+
         for comic in comiclist:
-            issue = myDB.selectone("SELECT COUNT(*) as count FROM issues WHERE ComicID=?", [comic['ComicID']]).fetchone()
-            if issue is None:
-                if refreshit is not None:
-                    logger.fdebug(str(comic['ComicID']) + ' has no issuedata available. Forcing complete Refresh/Rescan')
-                    return True
-                else:
-                    continue
-            if mylar.ANNUALS_ON:
-                annuals_on = True
-                annual = myDB.selectone("SELECT COUNT(*) as count FROM annuals WHERE ComicID=?", [comic['ComicID']]).fetchone()
-                annualcount = annual[0]
-                if not annualcount:
-                    annualcount = 0
-            else:
-                annuals_on = False
-                annual = None
-                annualcount = 0
+            #--not sure about this part
+            #if comic['Total'] is None:
+            #    if refreshit is not None:
+            #        logger.fdebug(str(comic['ComicID']) + ' has no issuedata available. Forcing complete Refresh/Rescan')
+            #        return True
+            #    else:
+            #        continue
             try:
-                totalissues = comic['Total'] + annualcount
+                totalissues = comic['Total']
+                if mylar.ANNUALS_ON:
+                    totalissues += comic['TotalAnnuals']
                 haveissues = comic['Have']
             except TypeError:
                 logger.warning('[Warning] ComicID: ' + str(comic['ComicID']) + ' is incomplete - Removing from DB. You should try to re-add the series.')
@@ -1336,6 +1380,11 @@ def havetotals(refreshit=None):
             else:
                 recentstatus = 'Ended'
 
+            if recentstatus == 'Loading':
+                cpub = comic['ComicPublished']
+            else:
+                cpub = re.sub('(N)', '', comic['ComicPublished']).strip()
+
             comics.append({"ComicID":         comic['ComicID'],
                            "ComicName":       comic['ComicName'],
                            "ComicSortName":   comic['ComicSortName'],
@@ -1344,7 +1393,7 @@ def havetotals(refreshit=None):
                            "ComicImage":      comic['ComicImage'],
                            "LatestIssue":     comic['LatestIssue'],
                            "LatestDate":      comic['LatestDate'],
-                           "ComicPublished":  re.sub('(N)', '', comic['ComicPublished']).strip(),
+                           "ComicPublished":  cpub,
                            "Status":          comic['Status'],
                            "recentstatus":    recentstatus,
                            "percent":         percent,
@@ -1356,6 +1405,8 @@ def havetotals(refreshit=None):
 
 def filesafe(comic):
     import unicodedata
+    if u'\u2014' in comic:
+        comic = re.sub(u'\u2014', ' - ', comic)
     try:
         u_comic = unicodedata.normalize('NFKD', comic).encode('ASCII', 'ignore').strip()
     except TypeError:
@@ -1366,93 +1417,114 @@ def filesafe(comic):
 
     return comicname_filesafe
 
-def IssueDetails(filelocation, IssueID=None):
+def IssueDetails(filelocation, IssueID=None, justinfo=False):
     import zipfile, logger
     from xml.dom.minidom import parseString
 
-    dstlocation = os.path.join(mylar.CACHE_DIR, 'temp.zip')
-
     issuedetails = []
-
-    if filelocation.endswith('.cbz'):
-        logger.fdebug('CBZ file detected. Checking for .xml within file')
-        shutil.copyfile(filelocation, dstlocation)
-    else:
-        logger.fdebug('filename is not a cbz : ' + filelocation)
-        return
-
-    cover = "notfound"
     issuetag = None
-    pic_extensions = ('.jpg','.png','.webp')
-    modtime = os.path.getmtime(dstlocation)
-    low_infile = 999999
 
-    try:
-        with zipfile.ZipFile(dstlocation, 'r') as inzipfile:
-            for infile in sorted(inzipfile.namelist()):
-                tmp_infile = re.sub("[^0-9]","", infile).strip()
-                if tmp_infile == '':
-                    pass
-                elif int(tmp_infile) < int(low_infile):
-                    low_infile = tmp_infile
-                    low_infile_name = infile
-                if infile == 'ComicInfo.xml':
-                    logger.fdebug('Extracting ComicInfo.xml to display.')
-                    dst = os.path.join(mylar.CACHE_DIR, 'ComicInfo.xml')
-                    data = inzipfile.read(infile)
-                    #print str(data)
-                    issuetag = 'xml'
-                #looks for the first page and assumes it's the cover. (Alternate covers handled later on)
-                elif any(['000.' in infile, '00.' in infile]) and infile.endswith(pic_extensions) and cover == "notfound":
-                    logger.fdebug('Extracting primary image ' + infile + ' as coverfile for display.')
+    if justinfo is False:
+        dstlocation = os.path.join(mylar.CACHE_DIR, 'temp.zip')
+
+
+        if filelocation.endswith('.cbz'):
+            logger.fdebug('CBZ file detected. Checking for .xml within file')
+            shutil.copy(filelocation, dstlocation)
+        else:
+            logger.fdebug('filename is not a cbz : ' + filelocation)
+            return
+
+        cover = "notfound"
+        pic_extensions = ('.jpg','.png','.webp')
+        modtime = os.path.getmtime(dstlocation)
+        low_infile = 999999
+
+        try:
+            with zipfile.ZipFile(dstlocation, 'r') as inzipfile:
+                for infile in sorted(inzipfile.namelist()):
+                    tmp_infile = re.sub("[^0-9]","", infile).strip()
+                    if tmp_infile == '':
+                        pass
+                    elif int(tmp_infile) < int(low_infile):
+                        low_infile = tmp_infile
+                        low_infile_name = infile
+                    if infile == 'ComicInfo.xml':
+                        logger.fdebug('Extracting ComicInfo.xml to display.')
+                        dst = os.path.join(mylar.CACHE_DIR, 'ComicInfo.xml')
+                        data = inzipfile.read(infile)
+                        #print str(data)
+                        issuetag = 'xml'
+                    #looks for the first page and assumes it's the cover. (Alternate covers handled later on)
+                    elif any(['000.' in infile, '00.' in infile]) and infile.endswith(pic_extensions) and cover == "notfound":
+                        logger.fdebug('Extracting primary image ' + infile + ' as coverfile for display.')
+                        local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
+                        local_file.write(inzipfile.read(infile))
+                        local_file.close
+                        cover = "found"
+                    elif any(['00a' in infile, '00b' in infile, '00c' in infile, '00d' in infile, '00e' in infile]) and infile.endswith(pic_extensions) and cover == "notfound":
+                        logger.fdebug('Found Alternate cover - ' + infile + ' . Extracting.')
+                        altlist = ('00a', '00b', '00c', '00d', '00e')
+                        for alt in altlist:
+                            if alt in infile:
+                                local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
+                                local_file.write(inzipfile.read(infile))
+                                local_file.close
+                                cover = "found"
+                                break
+
+                    elif any(['001.jpg' in infile, '001.png' in infile, '001.webp' in infile, '01.jpg' in infile, '01.png' in infile, '01.webp' in infile]) and cover == "notfound":
+                        logger.fdebug('Extracting primary image ' + infile + ' as coverfile for display.')
+                        local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
+                        local_file.write(inzipfile.read(infile))
+                        local_file.close
+                        cover = "found"
+
+                if cover != "found":
+                    logger.fdebug('Invalid naming sequence for jpgs discovered. Attempting to find the lowest sequence and will use as cover (it might not work). Currently : ' + str(low_infile))
                     local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
-                    local_file.write(inzipfile.read(infile))
+                    local_file.write(inzipfile.read(low_infile_name))
                     local_file.close
-                    cover = "found"
-                elif any(['00a' in infile, '00b' in infile, '00c' in infile, '00d' in infile, '00e' in infile]) and infile.endswith(pic_extensions) and cover == "notfound":
-                    logger.fdebug('Found Alternate cover - ' + infile + ' . Extracting.')
-                    altlist = ('00a', '00b', '00c', '00d', '00e')
-                    for alt in altlist:
-                        if alt in infile:
-                            local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
-                            local_file.write(inzipfile.read(infile))
-                            local_file.close
-                            cover = "found"
-                            break
+                    cover = "found"                
 
-                elif any(['001.jpg' in infile, '001.png' in infile, '001.webp' in infile, '01.jpg' in infile, '01.png' in infile, '01.webp' in infile]) and cover == "notfound":
-                    logger.fdebug('Extracting primary image ' + infile + ' as coverfile for display.')
-                    local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
-                    local_file.write(inzipfile.read(infile))
-                    local_file.close
-                    cover = "found"
+        except:
+            logger.info('ERROR. Unable to properly retrieve the cover for displaying. It\'s probably best to re-tag this file.')
+            return
 
-            if cover != "found":
-                logger.fdebug('Invalid naming sequence for jpgs discovered. Attempting to find the lowest sequence and will use as cover (it might not work). Currently : ' + str(low_infile))
-                local_file = open(os.path.join(mylar.CACHE_DIR, 'temp.jpg'), "wb")
-                local_file.write(inzipfile.read(low_infile_name))
-                local_file.close
-                cover = "found"                
+        ComicImage = os.path.join('cache', 'temp.jpg?' +str(modtime))
+        IssueImage = replacetheslash(ComicImage)
 
-    except:
-        logger.info('ERROR. Unable to properly retrieve the cover for displaying. It\'s probably best to re-tag this file.')
-        return
-
-    ComicImage = os.path.join('cache', 'temp.jpg?' +str(modtime))
-    IssueImage = replacetheslash(ComicImage)
+    else:
+        IssueImage = "None"
+        try:
+            with zipfile.ZipFile(filelocation, 'r') as inzipfile:
+                for infile in sorted(inzipfile.namelist()):
+                    if infile == 'ComicInfo.xml':
+                        logger.fdebug('Found ComicInfo.xml - now retrieving information.')
+                        data = inzipfile.read(infile)
+                        issuetag = 'xml'
+                        break
+        except:
+            logger.info('ERROR. Unable to properly retrieve the cover for displaying. It\'s probably best to re-tag this file.')
+            return
 
 
     if issuetag is None:
-        import subprocess
-        from subprocess import CalledProcessError, check_output
-        unzip_cmd = "/usr/bin/unzip"
+        data = None
         try:
-            #unzip -z will extract the zip comment field.
-            data = subprocess.check_output([unzip_cmd, '-z', dstlocation])
-            # return data is encoded in bytes, not unicode. Need to figure out how to run check_output returning utf-8
-            issuetag = 'comment'
-        except CalledProcessError as e:
+            dz = zipfile.ZipFile(filelocation, 'r')
+            data = dz.comment
+        except:
             logger.warn('Unable to extract comment field from zipfile.')
+            return
+        else:
+            if data:
+                issuetag = 'comment'
+            else:
+                logger.warn('No metadata available in zipfile comment field.')
+                return   
+
+    logger.info('Tag returned as being: ' + str(issuetag))
 
     #logger.info('data:' + str(data))
 
@@ -1545,28 +1617,30 @@ def IssueDetails(filelocation, IssueID=None):
             except:
                 pagecount = 0
 
-            i = 0
+            #not used atm.
+            #to validate a front cover if it's tagged as one within the zip (some do this)
+            #i = 0
+            #try:
+            #    pageinfo = result.getElementsByTagName('Page')[0].attributes
+            #    if pageinfo: pageinfo_test == True
+            #except:
+            #    pageinfo_test = False
 
-            try:
-                pageinfo = result.getElementsByTagName('Page')[0].attributes
-                if pageinfo: pageinfo_test == True
-            except:
-                pageinfo_test = False
+            #if pageinfo_test:
+            #    while (i < int(pagecount)):
+            #        pageinfo = result.getElementsByTagName('Page')[i].attributes
+            #        attrib = pageinfo.getNamedItem('Image')
+            #        #logger.fdebug('Frontcover validated as being image #: ' + str(attrib.value))
+            #        att = pageinfo.getNamedItem('Type')
+            #        #logger.fdebug('pageinfo: ' + str(pageinfo))
+            #        if att.value == 'FrontCover':
+            #            #logger.fdebug('FrontCover detected. Extracting.')
+            #            break
+            #        i+=1
 
-            if pageinfo_test:
-                while (i < int(pagecount)):
-                    pageinfo = result.getElementsByTagName('Page')[i].attributes
-                    attrib = pageinfo.getNamedItem('Image')
-                    #logger.fdebug('Frontcover validated as being image #: ' + str(attrib.value))
-                    att = pageinfo.getNamedItem('Type')
-                    logger.fdebug('pageinfo: ' + str(pageinfo))
-                    if att.value == 'FrontCover':
-                        #logger.fdebug('FrontCover detected. Extracting.')
-                        break
-                    i+=1
     elif issuetag == 'comment':
         logger.info('CBL Tagging.')
-        stripline = 'Archive:  ' + dstlocation
+        stripline = 'Archive:  ' + filelocation
         data = re.sub(stripline, '', data.encode("utf-8")).strip()
         if data is None or data == '':
             return
@@ -1762,30 +1836,201 @@ def listStoryArcs():
         library[row['CV_ArcID']] = row['CV_ArcID']
     return library
 
+def listoneoffs(weeknumber, year):
+    import db
+    library = []
+    myDB = db.DBConnection()
+    # Get Distinct one-off issues from the pullist that have already been downloaded / snatched
+    list = myDB.select("SELECT DISTINCT(IssueID), Status, ComicID, ComicName, Status, IssueNumber FROM oneoffhistory WHERE weeknumber=? and year=? AND Status='Downloaded' OR Status='Snatched'", [weeknumber, year])
+    for row in list:
+        library.append({'IssueID':     row['IssueID'],
+                        'ComicID':     row['ComicID'],
+                        'ComicName':   row['ComicName'],
+                        'IssueNumber': row['IssueNumber'],
+                        'Status':      row['Status'],
+                        'weeknumber':  weeknumber,
+                        'year':        year})
+    return library
+
+def manualArc(issueid, reading_order, storyarcid):
+    import db
+    if issueid.startswith('4000-'):
+        issueid = issueid[5:]
+
+    myDB = db.DBConnection()
+
+    arc_chk = myDB.select("SELECT * FROM readinglist WHERE StoryArcID=? AND NOT Manual is 'deleted'", [storyarcid])
+    storyarcname = arc_chk[0]['StoryArc']
+    storyarcissues = arc_chk[0]['TotalIssues']
+
+    iss_arcids = []
+    for issarc in arc_chk:
+        iss_arcids.append({"IssueArcID":     issarc['IssueArcID'],
+                           "IssueID":        issarc['IssueID'],
+                           "Manual":         issarc['Manual'],
+                           "ReadingOrder":   issarc['ReadingOrder']})
+
+
+    arc_results = mylar.cv.getComic(comicid=None, type='issue', issueid=None, arcid=storyarcid, arclist='M' + str(issueid))
+    arcval = arc_results['issuechoice'][0]
+    comicname = arcval['ComicName']
+    st_d = mylar.filechecker.FileChecker(watchcomic=comicname)
+    st_dyninfo = st_d.dynamic_replace(comicname)
+    dynamic_name = re.sub('[\|\s]','', st_dyninfo['mod_seriesname'].lower()).strip()
+    issname = arcval['Issue_Name']
+    issid = str(arcval['IssueID'])
+    comicid = str(arcval['ComicID'])
+    cidlist = str(comicid)
+    st_issueid = None
+    manual_mod = 'added'
+    new_readorder = []
+    for aid in iss_arcids:
+        if aid['IssueID'] == issid:
+            logger.info('Issue already exists for storyarc [IssueArcID:' + aid['IssueArcID'] + '][Manual:' + aid['Manual'])
+            st_issueid = aid['IssueArcID']
+            manual_mod = aid['Manual']
+
+        if reading_order is None:
+            #if no reading order is given, drop in the last spot.
+            reading_order = len(iss_arcids) + 1
+        if int(aid['ReadingOrder']) >= int(reading_order):
+            reading_seq = int(aid['ReadingOrder']) + 1
+        else:
+            reading_seq = int(aid['ReadingOrder'])
+
+        new_readorder.append({'IssueArcID':   aid['IssueArcID'],
+                              'IssueID':      aid['IssueID'],
+                              'ReadingOrder': reading_seq})
+
+    import random
+    if st_issueid is None:
+        st_issueid = str(storyarcid) + "_" + str(random.randint(1000,9999))
+    issnum = arcval['Issue_Number']
+    issdate = str(arcval['Issue_Date'])
+    storedate = str(arcval['Store_Date'])
+    int_issnum = issuedigits(issnum)
+
+    comicid_results = mylar.cv.getComic(comicid=None, type='comicyears', comicidlist=cidlist)
+    seriesYear = 'None'
+    issuePublisher = 'None'
+    seriesVolume = 'None'
+
+    if issname is None:
+        IssueName = 'None'
+    else:
+        IssueName = issname[:70]
+
+    for cid in comicid_results:
+        if cid['ComicID'] == comicid:
+            seriesYear = cid['SeriesYear']
+            issuePublisher = cid['Publisher']
+            seriesVolume = cid['Volume']
+            #assume that the arc is the same
+            storyarcpublisher = issuePublisher
+            break
+
+
+    newCtrl = {"IssueID":           issid,
+               "StoryArcID":        storyarcid}
+    newVals = {"ComicID":           comicid,
+               "IssueArcID":        st_issueid,
+               "StoryArc":          storyarcname,
+               "ComicName":         comicname,
+               "Volume":            seriesVolume,
+               "DynamicComicName":  dynamic_name,
+               "IssueName":         IssueName,
+               "IssueNumber":       issnum,
+               "Publisher":         storyarcpublisher,
+               "TotalIssues":       str(int(storyarcissues) +1),
+               "ReadingOrder":      int(reading_order),  #arbitrarily set it to the last reading order sequence # just to see if it works.
+               "IssueDate":         issdate,
+               "StoreDate":         storedate,
+               "SeriesYear":        seriesYear,
+               "IssuePublisher":    issuePublisher,
+               "CV_ArcID":          storyarcid,
+               "Int_IssueNumber":   int_issnum,
+               "Manual":            manual_mod}
+
+    myDB.upsert("readinglist", newVals, newCtrl)
+
+    #now we resequence the reading-order to accomdate the change.
+    logger.info('Adding the new issue into the reading order & resequencing the order to make sure there are no sequence drops...')
+    new_readorder.append({'IssueArcID':   st_issueid,
+                          'IssueID':      issid,
+                          'ReadingOrder': int(reading_order)})
+
+    newrl = 0
+    for rl in sorted(new_readorder, key=itemgetter('ReadingOrder'), reverse=False):
+        if rl['ReadingOrder'] - 1 != newrl:
+            rorder = newrl + 1
+            logger.fdebug(rl['IssueID'] + ' - changing reading order seq to : ' + str(rorder))
+        else:
+            rorder = rl['ReadingOrder']
+            logger.fdebug(rl['IssueID'] + ' - setting reading order seq to : ' + str(rorder))
+
+        rl_ctrl = {"IssueID":           rl['IssueID'],
+                   "IssueArcID":        rl['IssueArcID'],
+                   "StoryArcID":        storyarcid}
+        r1_new = {"ReadingOrder":       rorder}
+        newrl = rorder
+
+        myDB.upsert("readinglist", r1_new, rl_ctrl)
+
+    #check to see if the issue exists already so we can set the status right away.
+    iss_chk = myDB.selectone('SELECT * FROM issues where issueid = ?', [issueid]).fetchone()
+    if iss_chk is None:
+        logger.info('Issue is not currently in your watchlist. Setting status to Skipped')
+        status_change = 'Skipped'
+    else:
+        status_change = iss_chk['Status']
+        logger.info('Issue currently exists in your watchlist. Setting status to ' + status_change)
+        myDB.upsert("readinglist", {'Status': status_change}, newCtrl)
+
+    return
+
 def listIssues(weeknumber, year):
     import db
     library = []
     myDB = db.DBConnection()
     # Get individual issues
-    list = myDB.select("SELECT issues.Status, issues.ComicID, issues.IssueID, issues.ComicName, weekly.publisher, issues.Issue_Number from weekly, issues where weekly.IssueID = issues.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
+    list = myDB.select("SELECT issues.Status, issues.ComicID, issues.IssueID, issues.ComicName, issues.IssueDate, issues.ReleaseDate, weekly.publisher, issues.Issue_Number from weekly, issues where weekly.IssueID = issues.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
     for row in list:
+        if row['ReleaseDate'] is None:
+            tmpdate = row['IssueDate']
+        else:
+            tmpdate = row['ReleaseDate']
         library.append({'ComicID': row['ComicID'],
-                       'Status':  row['Status'],
-                       'IssueID': row['IssueID'],
-                       'ComicName': row['ComicName'],
-                       'Publisher': row['publisher'],
-                       'Issue_Number': row['Issue_Number']})
+                        'Status':  row['Status'],
+                        'IssueID': row['IssueID'],
+                        'ComicName': row['ComicName'],
+                        'Publisher': row['publisher'],
+                        'Issue_Number': row['Issue_Number'],
+                        'IssueYear': tmpdate})
+
     # Add the annuals
     if mylar.ANNUALS_ON:
-        list = myDB.select("SELECT annuals.Status, annuals.ComicID, annuals.ReleaseComicID, annuals.IssueID, annuals.ComicName, weekly.publisher, annuals.Issue_Number from weekly, annuals where weekly.IssueID = annuals.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
+        list = myDB.select("SELECT annuals.Status, annuals.ComicID, annuals.ReleaseComicID, annuals.IssueID, annuals.ComicName, annuals.ReleaseDate, annuals.IssueDate, weekly.publisher, annuals.Issue_Number from weekly, annuals where weekly.IssueID = annuals.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
         for row in list:
+            if row['ReleaseDate'] is None:
+                tmpdate = row['IssueDate']
+            else:
+                tmpdate = row['ReleaseDate']
             library.append({'ComicID': row['ComicID'],
                             'Status':  row['Status'],
                             'IssueID': row['IssueID'],
                             'ComicName': row['ComicName'],
                             'Publisher': row['publisher'],
-                            'Issue_Number': row['Issue_Number']})
+                            'Issue_Number': row['Issue_Number'],
+                            'IssueYear': tmpdate})
 
+    #tmplist = library
+    #librarylist = []
+    #for liblist in tmplist:
+    #    lb = myDB.select('SELECT ComicVersion, Type, ComicYear, ComicID from comics WHERE ComicID=?', [liblist['ComicID']])
+    #    librarylist.append(liblist)
+    #    librarylist.update({'Comic_Volume': lb['ComicVersion'],
+    #                        'ComicYear': lb['ComicYear'],
+    #                        'ComicType': lb['Type']})
     return library
 
 def incr_snatched(ComicID):
@@ -1825,13 +2070,13 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
     #'write' - write new file
     #'dupe_file' - do not write new file as existing file is better quality
     #'dupe_src' - write new file, as existing file is a lesser quality (dupe)
-    rtnval = []
+
     if dupchk['Status'] == 'Downloaded' or dupchk['Status'] == 'Archived':
         try:
             dupsize = dupchk['ComicSize']
         except:
             logger.info('[DUPECHECK] Duplication detection returned no hits as this is a new Snatch. This is not a duplicate.')
-            rtnval.append({'action':  "write"})
+            rtnval = {'action':  "write"}
 
         logger.info('[DUPECHECK] Existing Status already set to ' + dupchk['Status'])
         cid = []
@@ -1849,11 +2094,11 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                 else:
                     #file is Archived, but no entry exists in the db for the location. Assume Archived, and don't post-process.
                     logger.fdebug('[DUPECHECK] File is Archived but no file can be located within the db at the specified location. Assuming this was a manual archival and will not post-process this issue.')
-                    rtnval.append({'action':  "dont_dupe"})
+                    rtnval = {'action':  "dont_dupe"}
 
             else:
-                rtnval.append({'action':  "dupe_file",
-                               'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])})
+                rtnval = {'action':  "dupe_file",
+                          'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])}
         else:
             logger.info('[DUPECHECK] Existing file within db :' + dupchk['Location'] + ' has a filesize of : ' + str(dupsize) + ' bytes.')
 
@@ -1864,8 +2109,8 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                 logger.info('[DUPECHECK] Existing filesize is 0 as I cannot locate the original entry.')
                 if dupchk['Status'] == 'Archived':
                     logger.info('[DUPECHECK] Assuming issue is Archived.')
-                    rtnval.append({'action':  "dupe_file",
-                                   'to_dupe': filename})
+                    rtnval = {'action':  "dupe_file",
+                              'to_dupe': filename}
                     return rtnval
                 else:
                     logger.info('[DUPECHECK] Assuming 0-byte file - this one is gonna get hammered.')
@@ -1884,8 +2129,8 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                         else:
                             #keep filename
                             logger.info('[DUPECHECK-CBR PRIORITY] [#' + dupchk['Issue_Number'] + '] Retaining newly scanned in file : ' + filename)
-                            rtnval.append({'action':  "dupe_src",
-                                           'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])})
+                            rtnval = {'action':  "dupe_src",
+                                      'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])}
                     else:
                         if dupchk['Location'].endswith('.cbz'):
                             logger.info('[DUPECHECK-CBR PRIORITY] [#' + dupchk['Issue_Number'] + '] BOTH files are in cbz format. Retaining the larger filesize of the two.')
@@ -1893,8 +2138,8 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                         else:
                             #keep filename
                             logger.info('[DUPECHECK-CBR PRIORITY] [#' + dupchk['Issue_Number'] + '] Retaining newly scanned in file : ' + dupchk['Location'])
-                            rtnval.append({'action':  "dupe_file",
-                                           'to_dupe': filename})
+                            rtnval = {'action':  "dupe_file",
+                                      'to_dupe': filename}
 
                 elif 'cbz' in mylar.DUPECONSTRAINT:
                     if filename.endswith('.cbr'):
@@ -1904,8 +2149,8 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                         else:
                             #keep filename
                             logger.info('[DUPECHECK-CBZ PRIORITY] [#' + dupchk['Issue_Number'] + '] Retaining currently scanned in filename : ' + dupchk['Location'])
-                            rtnval.append({'action':  "dupe_file",
-                                           'to_dupe': filename})
+                            rtnval = {'action':  "dupe_file",
+                                      'to_dupe': filename}
                     else:
                         if dupchk['Location'].endswith('.cbz'):
                             logger.info('[DUPECHECK-CBZ PRIORITY] [#' + dupchk['Issue_Number'] + '] BOTH files are in cbz format. Retaining the larger filesize of the two.')
@@ -1913,22 +2158,22 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                         else:
                             #keep filename
                             logger.info('[DUPECHECK-CBZ PRIORITY] [#' + dupchk['Issue_Number'] + '] Retaining newly scanned in filename : ' + filename)
-                            rtnval.append({'action':  "dupe_src",
-                                           'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])})
+                            rtnval = {'action':  "dupe_src",
+                                      'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])}
 
             if mylar.DUPECONSTRAINT == 'filesize' or tmp_dupeconstraint == 'filesize':
                 if filesz <= int(dupsize) and int(dupsize) != 0:
                     logger.info('[DUPECHECK-FILESIZE PRIORITY] [#' + dupchk['Issue_Number'] + '] Retaining currently scanned in filename : ' + dupchk['Location'])
-                    rtnval.append({'action':  "dupe_file",
-                                   'to_dupe': filename}) 
+                    rtnval = {'action':  "dupe_file",
+                              'to_dupe': filename}
                 else:
                     logger.info('[DUPECHECK-FILESIZE PRIORITY] [#' + dupchk['Issue_Number'] + '] Retaining newly scanned in filename : ' + filename)
-                    rtnval.append({'action':  "dupe_src",
-                                   'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])})
+                    rtnval = {'action':  "dupe_src",
+                              'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])}
 
     else:
         logger.info('[DUPECHECK] Duplication detection returned no hits. This is not a duplicate of anything that I have scanned in as of yet.')
-        rtnval.append({'action':  "write"})
+        rtnval = {'action':  "write"}
     return rtnval
 
 def create_https_certificates(ssl_cert, ssl_key):
@@ -1970,13 +2215,13 @@ def torrent_create(site, linkid, alt=None):
         pass
     elif site == 'TPSE':
         if alt is None:
-            url = 'http://torrentproject.se/torrent/' + str(linkid) + '.torrent'
+            url = mylar.TPSEURL + 'torrent/' + str(linkid) + '.torrent'
         else:
-            url = 'http://torrentproject.se/torrent/' + str(linkid) + '.torrent'
+            url = mylar.TPSEURL + 'torrent/' + str(linkid) + '.torrent'
     elif site == 'DEM':
-        url = 'https://www.dnoid.me/files/download/' + str(linkid) + '/'
+        url = mylar.DEMURL + 'files/download/' + str(linkid) + '/'
     elif site == 'WWT':
-        url = 'https://worldwidetorrents.eu/download.php'
+        url = mylar.WWTURL + 'download.php'
 
     return url
 
@@ -2098,7 +2343,7 @@ def crc(filename):
 
     #speed in lieu of memory (file into memory entirely)
     #return "%X" % (zlib.crc32(open(filename, "rb").read()) & 0xFFFFFFFF)
-
+    filename = filename.encode(mylar.SYS_ENCODING)
     return hashlib.md5(filename).hexdigest()
 
 def issue_find_ids(ComicName, ComicID, pack, IssueNumber):
@@ -2220,12 +2465,27 @@ def checkthe_id(comicid=None, up_vals=None):
         if chk is None:
            return None
         else:
-           return {'id':     chk['ID'],
-                   'series': chk['Series']}
+           #if updated time hasn't been set or it's > 24 hrs, blank the entry so we can make sure we pull an updated groupid from 32p
+           if chk['Updated'] is None:
+               logger.fdebug('Reference found for 32p - but the id has never been verified after populating. Verifying it is still the right id before proceeding.')
+               return None
+           else:
+               c_obj_date = datetime.datetime.strptime(chk['Updated'], "%Y-%m-%d %H:%M:%S")
+               n_date = datetime.datetime.now()
+               absdiff = abs(n_date - c_obj_date)
+               hours = (absdiff.days * 24 * 60 * 60 + absdiff.seconds) / 3600.0
+               if hours >= 24:
+                   logger.fdebug('Reference found for 32p - but older than 24hours since last checked. Verifying it is still the right id before proceeding.')
+                   return None
+               else:
+                   return {'id':     chk['ID'],
+                           'series': chk['Series']}
+
     else:
         ctrlVal = {'ComicID':     comicid}
         newVal =  {'Series':      up_vals[0]['series'],
-                   'ID':          up_vals[0]['id']}
+                   'ID':          up_vals[0]['id'],
+                   'Updated':     now()}
         myDB.upsert("ref32p", newVal, ctrlVal)
 
 def updatearc_locs(storyarcid, issues):
@@ -2267,41 +2527,44 @@ def updatearc_locs(storyarcid, issues):
                     arcpub = arcinfo['Publisher']
 
                 grdst = arcformat(arcinfo['StoryArc'], spantheyears(arcinfo['StoryArcID']), arcpub)
-                logger.info('grdst:' + grdst)
+                if grdst is not None:
+                    logger.info('grdst:' + grdst)
+                    #send to renamer here if valid.
+                    dfilename = chk['Location']
+                    if mylar.RENAME_FILES:
+                        renamed_file = rename_param(arcinfo['ComicID'], arcinfo['ComicName'], arcinfo['IssueNumber'], chk['Location'], issueid=arcinfo['IssueID'], arc=arcinfo['StoryArc'])
+                        if renamed_file:
+                            dfilename = renamed_file['nfilename']
 
-                #send to renamer here if valid.
-                dfilename = chk['Location']
-                if mylar.RENAME_FILES:
-                    renamed_file = rename_param(arcinfo['ComicID'], arcinfo['ComicName'], arcinfo['IssueNumber'], chk['Location'], issueid=arcinfo['IssueID'], arc=arcinfo['StoryArc'])
-                    if renamed_file:
-                        dfilename = renamed_file['nfilename']
+                    if mylar.READ2FILENAME:
+                        #logger.fdebug('readingorder#: ' + str(arcinfo['ReadingOrder']))
+                        #if int(arcinfo['ReadingOrder']) < 10: readord = "00" + str(arcinfo['ReadingOrder'])
+                        #elif int(arcinfo['ReadingOrder']) >= 10 and int(arcinfo['ReadingOrder']) <= 99: readord = "0" + str(arcinfo['ReadingOrder'])
+                        #else: readord = str(arcinfo['ReadingOrder'])
+                        readord = renamefile_readingorder(arcinfo['ReadingOrder'])
+                        dfilename = str(readord) + "-" + dfilename
 
-                if mylar.READ2FILENAME:
-                    #logger.fdebug('readingorder#: ' + str(arcinfo['ReadingOrder']))
-                    #if int(arcinfo['ReadingOrder']) < 10: readord = "00" + str(arcinfo['ReadingOrder'])
-                    #elif int(arcinfo['ReadingOrder']) >= 10 and int(arcinfo['ReadingOrder']) <= 99: readord = "0" + str(arcinfo['ReadingOrder'])
-                    #else: readord = str(arcinfo['ReadingOrder'])
-                    readord = renamefile_readingorder(arcinfo['ReadingOrder'])
-                    dfilename = str(readord) + "-" + dfilename
+                    pathdst = os.path.join(grdst, dfilename)
 
-                pathdst = os.path.join(grdst, dfilename)
+                    logger.fdebug('Destination Path : ' + pathdst)
+                    logger.fdebug('Source Path : ' + pathsrc)
+                    if not os.path.isfile(pathdst):
+                        logger.info('[' + mylar.ARC_FILEOPS.upper() + '] ' + pathsrc + ' into directory : ' + pathdst)
 
-                logger.fdebug('Destination Path : ' + pathdst)
-                logger.fdebug('Source Path : ' + pathsrc)
-                if not os.path.isfile(pathdst):
-                    logger.info('[' + mylar.ARC_FILEOPS.upper() + '] ' + pathsrc + ' into directory : ' + pathdst)
-
-                    try:
-                        #need to ensure that src is pointing to the series in order to do a soft/hard-link properly
-                        fileoperation = file_ops(pathsrc, pathdst, arc=True)
-                        if not fileoperation:
-                            raise OSError
-                    except (OSError, IOError):
-                        logger.fdebug('[' + mylar.ARC_FILEOPS.upper() + '] Failure ' + pathsrc + ' - check directories and manually re-run.')
-                        continue
+                        try:
+                            #need to ensure that src is pointing to the series in order to do a soft/hard-link properly
+                            fileoperation = file_ops(pathsrc, pathdst, arc=True)
+                            if not fileoperation:
+                                raise OSError
+                        except (OSError, IOError):
+                            logger.fdebug('[' + mylar.ARC_FILEOPS.upper() + '] Failure ' + pathsrc + ' - check directories and manually re-run.')
+                            continue
+                    updateloc = pathdst
+                else:
+                    updateloc = pathsrc
 
                 update_iss.append({'IssueID':    chk['IssueID'],
-                                   'Location':   pathdst})
+                                   'Location':   updateloc})
 
     for ui in update_iss:
         logger.info(ui['IssueID'] + ' to update location to: ' + ui['Location'])
@@ -2316,7 +2579,7 @@ def spantheyears(storyarcid):
     lowyear = 9999
     maxyear = 0
     for la in totalcnt:
-        if la['IssueDate'] is None:
+        if la['IssueDate'] is None or la['IssueDate'] == '0000-00-00':
             continue
         else:
             if int(la['IssueDate'][:4]) > maxyear:
@@ -2374,6 +2637,532 @@ def arcformat(arc, spanyears, publisher):
         dstloc = None
 
     return dstloc
+
+def torrentinfo(issueid=None, torrent_hash=None, download=False, monitor=False):
+    import db
+    from base64 import b16encode, b32decode
+
+    #check the status of the issueid to make sure it's in Snatched status and was grabbed via torrent.
+    if issueid:
+        myDB = db.DBConnection()
+        cinfo = myDB.selectone('SELECT a.Issue_Number, a.ComicName, a.Status, b.Hash from issues as a inner join snatched as b ON a.IssueID=b.IssueID WHERE a.IssueID=?', [issueid]).fetchone()
+        if cinfo is None:
+            logger.warn('Unable to locate IssueID of : ' + issueid)
+            snatch_status = 'ERROR'
+
+        if cinfo['Status'] != 'Snatched' or cinfo['Hash'] is None:
+            logger.warn(cinfo['ComicName'] + ' #' + cinfo['Issue_Number'] + ' is currently in a ' + cinfo['Status'] + ' Status.')
+            snatch_status = 'ERROR'
+
+        torrent_hash = cinfo['Hash']
+
+    logger.fdebug("Working on torrent: " + torrent_hash)
+    if len(torrent_hash) == 32:
+       torrent_hash = b16encode(b32decode(torrent_hash))
+
+    if not len(torrent_hash) == 40:
+       logger.error("Torrent hash is missing, or an invalid hash value has been passed")
+       snatch_status = 'ERROR'
+    else:
+        if mylar.USE_RTORRENT:
+            import test
+            rp = test.RTorrent()
+            torrent_info = rp.main(torrent_hash, check=True)
+        elif mylar.USE_DELUGE:
+            #need to set the connect here as well....
+            import torrent.clients.deluge as delu
+            dp = delu.TorrentClient()
+            if not dp.connect(mylar.DELUGE_HOST, mylar.DELUGE_USERNAME, mylar.DELUGE_PASSWORD):
+                logger.warn('Not connected to Deluge!')
+
+            torrent_info = dp.get_torrent(torrent_hash)
+        else:
+            snatch_status = 'ERROR'
+            return
+
+    logger.info('torrent_info: %s' % torrent_info)
+
+    if torrent_info is False or len(torrent_info) == 0:
+        logger.warn('torrent returned no information. Check logs - aborting auto-snatch at this time.')
+        snatch_status = 'ERROR'
+    else:
+        if mylar.USE_DELUGE:
+            torrent_status = torrent_info['is_finished']
+            torrent_files = torrent_info['num_files']
+            torrent_folder = torrent_info['save_path']
+            torrent_info['total_filesize'] = torrent_info['total_size']
+            torrent_info['upload_total'] = torrent_info['total_uploaded']
+            torrent_info['download_total'] = torrent_info['total_payload_download']
+            torrent_info['time_started'] = torrent_info['time_added']
+
+        elif mylar.USE_RTORRENT:
+            torrent_status = torrent_info['completed']
+            torrent_files = len(torrent_info['files'])
+            torrent_folder = torrent_info['folder']
+
+        if all([torrent_status is True, download is True]):
+            if not issueid: 
+                torrent_info['snatch_status'] = 'STARTING...'
+                #yield torrent_info
+
+            import shlex, subprocess
+            logger.info('Torrent is completed and status is currently Snatched. Attempting to auto-retrieve.')
+            with open(mylar.AUTO_SNATCH_SCRIPT, 'r') as f:
+                first_line = f.readline()
+
+            if mylar.AUTO_SNATCH_SCRIPT.endswith('.sh'):
+                shell_cmd = re.sub('#!', '', first_line)
+                if shell_cmd == '' or shell_cmd is None:
+                    shell_cmd = '/bin/bash'
+            else:
+                shell_cmd = sys.executable
+
+            curScriptName = shell_cmd + ' ' + str(mylar.AUTO_SNATCH_SCRIPT).decode("string_escape")
+            if torrent_files > 1:
+                downlocation = torrent_folder.encode('utf-8')
+            else:
+                if mylar.USE_DELUGE:
+                    downlocation = os.path.join(torrent_folder.encode('utf-8'), torrent_info['files'][0]['path'])
+                else:
+                    downlocation = torrent_info['files'][0].encode('utf-8')
+
+            os.environ['downlocation'] = re.sub("'", "\\'",downlocation)
+            #downlocation = re.sub("\'", "\\'", downlocation)
+            #downlocation = re.sub("&", "\&", downlocation)
+
+            script_cmd = shlex.split(curScriptName, posix=False) # + [downlocation]
+            logger.fdebug(u"Executing command " +str(script_cmd))
+            try:
+                p = subprocess.Popen(script_cmd, env=dict(os.environ), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=mylar.PROG_DIR)
+                out, err = p.communicate()
+                logger.fdebug(u"Script result: " + out)
+            except OSError, e:
+                logger.warn(u"Unable to run extra_script: " + e)
+                snatch_status = 'ERROR'
+            else:
+                if 'Access failed: No such file' in out:
+                    logger.fdebug('Not located in location it is supposed to be in - probably has been moved by some script and I got the wrong location due to timing. Trying again...')
+                    snatch_status = 'IN PROGRESS'
+                else:
+                    snatch_status = 'COMPLETED'
+                torrent_info['completed'] = torrent_status
+                torrent_info['files'] = torrent_files
+                torrent_info['folder'] = torrent_folder
+
+        else:
+            if download is True:
+                snatch_status = 'IN PROGRESS'
+            elif monitor is True:
+                #pause the torrent, copy it to the cache folder, unpause the torrent and return the complete path to the cache location
+                if mylar.USE_DELUGE:
+                    pauseit = dp.stop_torrent(torrent_hash)
+                    if pauseit is False:
+                        logger.warn('Unable to pause torrent - cannot run post-process on item at this time.')
+                        snatch_status = 'MONITOR FAIL'
+                    else:
+                        try:
+                            new_filepath = os.path.join(torrent_path, '.copy')
+                            logger.fdebug('New_Filepath: %s' % new_filepath)
+                            shutil.copy(torrent_path, new_filepath)
+                            torrent_info['copied_filepath'] = new_filepath
+                        except:
+                            logger.warn('Unexpected Error: %s' % sys.exc_info()[0])
+                            logger.warn('Unable to create temporary directory to perform meta-tagging. Processing cannot continue with given item at this time.')
+                            torrent_info['copied_filepath'] = torrent_path
+                            SNATCH_STATUS = 'MONITOR FAIL'
+                        else:
+                            startit = dp.start_torrent(torrent_hash)
+                            SNATCH_STATUS = 'MONITOR COMPLETE'
+            else:
+                snatch_status = 'NOT SNATCHED'
+
+    torrent_info['snatch_status'] = snatch_status
+    return torrent_info
+
+def weekly_info(week=None, year=None):
+    #find the current week and save it as a reference point.
+    todaydate = datetime.datetime.today()
+    current_weeknumber = todaydate.strftime("%U")
+
+
+    if week:
+        weeknumber = int(week)
+        year = int(year)
+        #view specific week (prev_week, next_week)
+        startofyear = date(year,1,1)
+        week0 = startofyear - timedelta(days=startofyear.isoweekday())
+        stweek = datetime.datetime.strptime(week0.strftime('%Y-%m-%d'), '%Y-%m-%d')
+        startweek = stweek + timedelta(weeks = weeknumber)
+        midweek = startweek + timedelta(days = 3)
+        endweek = startweek + timedelta(days = 6)
+    else:
+        #find the given week number for the current day
+        weeknumber = current_weeknumber
+        stweek = datetime.datetime.strptime(todaydate.strftime('%Y-%m-%d'), '%Y-%m-%d')
+        startweek = stweek - timedelta(days = (stweek.weekday() + 1) % 7)
+        midweek = startweek + timedelta(days = 3)
+        endweek = startweek + timedelta(days = 6)
+        year = todaydate.strftime("%Y")
+
+    prev_week = int(weeknumber) - 1
+    prev_year = year
+    if prev_week == 0:
+        prev_week = 52
+        prev_year = int(year) - 1
+
+    next_week = int(weeknumber) + 1
+    next_year = year
+    if next_week == 53:
+        next_week = 1
+        next_year = int(year) + 1
+
+    date_fmt = "%B %d, %Y"
+    try:
+        con_startweek = u"" + startweek.strftime(date_fmt).decode('utf-8')
+        con_endweek = u"" + endweek.strftime(date_fmt).decode('utf-8')
+    except:
+        con_startweek = u"" + startweek.strftime(date_fmt).decode('cp1252')
+        con_endweek = u"" + endweek.strftime(date_fmt).decode('cp1252')
+
+    if mylar.WEEKFOLDER_LOC is not None:
+        weekdst = mylar.WEEKFOLDER_LOC
+    else:
+        weekdst = mylar.DESTINATION_DIR
+
+    weekinfo = {'weeknumber':         weeknumber,
+                'startweek':          con_startweek,
+                'midweek':            midweek.strftime('%Y-%m-%d'),
+                'endweek':            con_endweek,
+                'year':               year,
+                'prev_weeknumber':    prev_week,
+                'prev_year':          prev_year,
+                'next_weeknumber':    next_week,
+                'next_year':          next_year,
+                'current_weeknumber': current_weeknumber,
+                'last_update':        mylar.PULL_REFRESH}
+
+    if mylar.WEEKFOLDER_FORMAT == 0:
+        weekfold = os.path.join(weekdst, str( str(weekinfo['year']) + '-' + str(weeknumber) ))
+    else:
+        weekfold = os.path.join(weekdst, str( str(weekinfo['midweek']) ))
+
+    weekinfo['week_folder'] = weekfold
+
+    return weekinfo
+
+def latestdate_update():
+    import db
+    myDB = db.DBConnection()
+    ccheck = myDB.select('SELECT a.ComicID, b.IssueID, a.LatestDate, b.ReleaseDate, b.Issue_Number from comics as a left join issues as b on a.comicid=b.comicid where a.LatestDate < b.ReleaseDate or a.LatestDate like "%Unknown%" group by a.ComicID')
+    if ccheck is None or len(ccheck) == 0:
+        return
+    logger.info('Now preparing to update ' + str(len(ccheck)) + ' series that have out-of-date latest date information.')
+    ablist = []
+    for cc in ccheck:
+        ablist.append({'ComicID':     cc['ComicID'],
+                       'LatestDate':  cc['ReleaseDate'],
+                       'LatestIssue': cc['Issue_Number']})
+
+    #forcibly set the latest date and issue number to the most recent.
+    for a in ablist:
+        logger.info(a)
+        newVal = {'LatestDate':         a['LatestDate'],
+                  'LatestIssue':        a['LatestIssue']}
+        ctrlVal = {'ComicID':           a['ComicID']}
+        logger.info('updating latest date for : ' + a['ComicID'] + ' to ' + a['LatestDate'] + ' #' + a['LatestIssue'])
+        myDB.upsert("comics", newVal, ctrlVal)
+   
+def worker_main(queue):
+    while True:
+        item = queue.get(True)
+        logger.info('Now loading from queue: ' + item)
+        if item == 'exit':
+            logger.info('Cleaning up workers for shutdown')
+            break
+        snstat = torrentinfo(torrent_hash=item, download=True)
+        if snstat['snatch_status'] == 'IN PROGRESS':
+            logger.info('Still downloading in client....let us try again momentarily.')
+            time.sleep(30)
+            mylar.SNATCHED_QUEUE.put(item)
+        elif any([snstat['snatch_status'] == 'MONITOR FAIL', snstat['snatch_status'] == 'MONITOR COMPLETE']):
+            logger.info('File copied for post-processing - submitting as a direct pp.')
+            threading.Thread(target=self.checkFolder, args=[os.path.abspath(os.path.join(snstat['copied_filepath'], os.pardir))]).start()           
+
+def script_env(mode, vars):
+    #mode = on-snatch, pre-postprocess, post-postprocess
+    #var = dictionary containing variables to pass
+    if mode == 'on-snatch':
+        runscript = mylar.SNATCH_SCRIPT
+        if 'torrentinfo' in vars:
+            if 'hash' in vars['torrentinfo']:
+                os.environ['mylar_release_hash'] = vars['torrentinfo']['hash'] 
+            if 'name' in vars['torrentinfo']:
+                os.environ['mylar_release_name'] = vars['torrentinfo']['name']
+            if 'folder' in vars['torrentinfo']:
+                os.environ['mylar_release_folder'] = vars['torrentinfo']['folder']
+            if 'label' in vars['torrentinfo']:
+                os.environ['mylar_release_label'] = vars['torrentinfo']['label']
+            if 'total_filesize' in vars['torrentinfo']:
+                os.environ['mylar_release_filesize'] = str(vars['torrentinfo']['total_filesize'])
+            if 'time_started' in vars['torrentinfo']:
+                os.environ['mylar_release_start'] = str(vars['torrentinfo']['time_started'])
+            if 'filepath' in vars['torrentinfo']:
+                os.environ['mylar_torrent_file'] = str(vars['torrentinfo']['filepath'])
+            else:
+                try:
+                    os.environ['mylar_release_files'] = "|".join(vars['torrentinfo']['files'])
+                except TypeError:
+                    os.environ['mylar_release_files'] = "|".join(json.dumps(vars['torrentinfo']['files']))
+        elif 'nzbinfo' in vars:
+            os.environ['mylar_release_id'] = vars['nzbinfo']['id']
+            os.environ['mylar_release_nzbname'] = vars['nzbinfo']['nzbname']
+            os.environ['mylar_release_link'] = vars['nzbinfo']['link']
+            os.environ['mylar_release_nzbpath'] = vars['nzbinfo']['nzbpath']
+            if 'blackhole' in vars['nzbinfo']:
+                os.environ['mylar_release_blackhole'] = vars['nzbinfo']['blackhole']
+        os.environ['mylar_release_provider'] = vars['provider']
+        if 'comicinfo' in vars:
+            try:
+                os.environ['mylar_comicid'] = vars['comicinfo']['comicid']  #comicid/issueid are unknown for one-offs (should be fixable tho)
+            except:
+                pass
+            try:
+                os.environ['mylar_issueid'] = vars['comicinfo']['issueid']
+            except:
+                pass
+            os.environ['mylar_comicname'] = vars['comicinfo']['comicname']
+            os.environ['mylar_issuenumber'] = str(vars['comicinfo']['issuenumber'])
+            try:
+                os.environ['mylar_comicvolume'] = str(vars['comicinfo']['volume'])
+            except:
+                pass
+            try:
+                os.environ['mylar_seriesyear'] = str(vars['comicinfo']['seriesyear'])
+            except:
+                pass
+            try:
+                os.environ['mylar_issuedate'] = str(vars['comicinfo']['issuedate'])
+            except:
+                pass
+
+        os.environ['mylar_release_pack'] = str(vars['pack'])
+        if vars['pack'] is True:
+            os.environ['mylar_release_pack_numbers'] = vars['pack_numbers']
+            os.environ['mylar_release_pack_issuelist'] = vars['pack_issuelist']
+        os.environ['mylar_method'] = vars['method']
+        os.environ['mylar_client'] = vars['clientmode']
+
+    elif mode == 'post-process':
+        #to-do
+        runscript = mylar.EXTRA_SCRIPTS
+    elif mode == 'pre-process':
+        #to-do
+        runscript = mylar.PRE_SCRIPTS
+
+    logger.fdebug('Initiating ' + mode + ' script detection.')
+    with open(runscript, 'r') as f:
+        first_line = f.readline()
+
+    if runscript.endswith('.sh'):
+        shell_cmd = re.sub('#!', '', first_line)
+        if shell_cmd == '' or shell_cmd is None:
+            shell_cmd = '/bin/bash'
+    else:
+        shell_cmd = sys.executable
+
+    curScriptName = shell_cmd + ' ' + runscript.decode("string_escape")
+    logger.fdebug("snatch script detected...enabling: " + str(curScriptName))
+
+    script_cmd = shlex.split(curScriptName)
+    logger.fdebug(u"Executing command " +str(script_cmd))
+    try:
+        subprocess.call(script_cmd, env=dict(os.environ))
+    except OSError, e:
+        logger.warn(u"Unable to run extra_script: " + str(script_cmd))
+        return False
+    else:
+        return True
+
+def get_the_hash(filepath):
+    import hashlib, StringIO
+    import bencode
+    # Open torrent file
+    torrent_file = open(filepath, "rb")
+    metainfo = bencode.decode(torrent_file.read())
+    info = metainfo['info']
+    thehash = hashlib.sha1(bencode.encode(info)).hexdigest().upper()
+    logger.info('Hash of file : ' + thehash)
+    return {'hash':     thehash}
+
+def date_conversion(originaldate):
+    c_obj_date = datetime.datetime.strptime(originaldate, "%Y-%m-%d %H:%M:%S")
+    n_date = datetime.datetime.now()
+    absdiff = abs(n_date - c_obj_date)
+    hours = (absdiff.days * 24 * 60 * 60 + absdiff.seconds) / 3600.0
+    return hours
+
+def job_management(write=False, job=None, last_run_completed=None, current_run=None, status=None):
+        jobresults = []
+
+        import db
+        myDB = db.DBConnection()
+
+        if job is None:
+            dbupdate_newstatus = 'Waiting'
+            dbupdate_nextrun = None
+            rss_newstatus = 'Waiting'
+            rss_nextrun = None
+            weekly_newstatus = 'Waiting'
+            weekly_nextrun = None
+            search_newstatus = 'Waiting'
+            search_nextrun = None
+            version_newstatus = 'Waiting'
+            version_nextrun = None
+            monitor_newstatus = 'Waiting'
+            monitor_nextrun = None
+
+            job_info = myDB.select('select * from jobhistory')
+            #set default values if nothing has been ran yet
+            for ji in job_info:
+                if 'update' in ji['JobName'].lower():
+                    if mylar.SCHED_DBUPDATE_LAST is None:
+                        mylar.SCHED_DBUPDATE_LAST = ji['prev_run_timestamp']
+                    dbupdate_newstatus = ji['status']
+                    dbupdate_nextrun = ji['next_run_timestamp']
+                elif 'search' in ji['JobName'].lower():
+                    if mylar.SCHED_SEARCH_LAST is None:
+                        mylar.SCHED_SEARCH_LAST = ji['prev_run_timestamp']
+                    search_newstatus = ji['status']
+                    search_nextrun = ji['next_run_timestamp']
+                elif 'rss' in ji['JobName'].lower():
+                    if mylar.SCHED_RSS_LAST is None:
+                        mylar.SCHED_RSS_LAST = ji['prev_run_timestamp']
+                    rss_newstatus = ji['status']
+                    rss_nextrun = ji['next_run_timestamp']
+                elif 'weekly' in ji['JobName'].lower():
+                    if mylar.SCHED_WEEKLY_LAST is None:
+                        mylar.SCHED_WEEKLY_LAST = ji['prev_run_timestamp']
+                    weekly_newstatus = ji['status']
+                    weekly_nextrun = ji['next_run_timestamp']
+                elif 'version' in ji['JobName'].lower():
+                    if mylar.SCHED_VERSION_LAST is None:
+                        mylar.SCHED_VERSION_LAST = ji['prev_run_timestamp']
+                    version_newstatus = ji['status']
+                    version_nextrun = ji['next_run_timestamp']
+                elif 'monitor' in ji['JobName'].lower():
+                    if mylar.SCHED_MONITOR_LAST is None:
+                        mylar.SCHED_MONITOR_LAST = ji['prev_run_timestamp']
+                    monitor_newstatus = ji['status']
+                    monitor_nextrun = ji['next_run_timestamp']
+
+            #this is for initial startup
+            for jb in mylar.SCHED.get_jobs():
+                #logger.fdebug('jb: %s' % jb)
+                jobinfo = str(jb)
+                if 'Status Updater' in jobinfo.lower():
+                    continue
+                elif 'update' in jobinfo.lower():
+                    prev_run_timestamp = mylar.SCHED_DBUPDATE_LAST
+                    newstatus = dbupdate_newstatus
+                elif 'search' in jobinfo.lower():
+                    prev_run_timestamp = mylar.SCHED_SEARCH_LAST
+                    newstatus = search_newstatus
+                elif 'rss' in jobinfo.lower():
+                    prev_run_timestamp = mylar.SCHED_RSS_LAST
+                    newstatus = rss_newstatus
+                elif 'weekly' in jobinfo.lower():
+                    prev_run_timestamp = mylar.SCHED_WEEKLY_LAST
+                    newstatus = weekly_newstatus
+                elif 'version' in jobinfo.lower():
+                    prev_run_timestamp = mylar.SCHED_VERSION_LAST
+                    newstatus = version_newstatus
+                elif 'monitor' in jobinfo.lower():
+                    prev_run_timestamp = mylar.SCHED_MONITOR_LAST
+                    newstatus = monitor_newstatus
+
+                jobname = jobinfo[:jobinfo.find('(')-1].strip()
+                #logger.fdebug('jobinfo: %s' % jobinfo)
+                try:
+                    jobtimetmp = jobinfo.split('at: ')[1].split('.')[0].strip()
+                except:
+                    continue
+                #logger.fdebug('jobtimetmp: %s' % jobtimetmp)
+                jobtime = float(calendar.timegm(datetime.datetime.strptime(jobtimetmp[:-1], '%Y-%m-%d %H:%M:%S %Z').timetuple()))
+                #logger.fdebug('jobtime: %s' % jobtime)
+
+                if prev_run_timestamp is not None:
+                    prev_run_time_utc = datetime.datetime.utcfromtimestamp(float(prev_run_timestamp))
+                else:
+                    prev_run_time_utc = None
+                #logger.fdebug('prev_run_time: %s' % prev_run_timestamp)
+                #logger.fdebug('prev_run_time type: %s' % type(prev_run_timestamp))
+                jobresults.append({'jobname': jobname,
+                                   'next_run_datetime': datetime.datetime.utcfromtimestamp(jobtime),
+                                   'prev_run_datetime': prev_run_time_utc,
+                                   'next_run_timestamp': jobtime,
+                                   'prev_run_timestamp': prev_run_timestamp,
+                                   'status': newstatus})
+
+        if not write:
+            #logger.info('jobresults: %s' % jobresults)
+            return jobresults
+        else:
+            if job is None:
+                for x in jobresults:
+                    updateCtrl = {'JobName':  x['jobname']}
+                    updateVals = {'next_run_timestamp': x['next_run_timestamp'],
+                                  'prev_run_timestamp': x['prev_run_timestamp'],
+                                  'next_run_datetime': x['next_run_datetime'],
+                                  'prev_run_datetime': x['prev_run_datetime'],
+                                  'status': x['status']}
+
+                    myDB.upsert('jobhistory', updateVals, updateCtrl)
+            else:
+                #logger.fdebug('Updating info - job: %s' % job)
+                #logger.fdebug('Updating info - last run: %s' % last_run_completed)
+                #logger.fdebug('Updating info - status: %s' % status)
+                updateCtrl = {'JobName':  job}
+                if current_run is not None:
+                    updateVals = {'prev_run_timestamp': current_run,
+                                  'prev_run_datetime': datetime.datetime.utcfromtimestamp(current_run),
+                                  'status':  status}
+                    #logger.info('updateVals: %s' % updateVals)
+                elif last_run_completed is not None:
+                    if job == 'DB Updater':
+                        mylar.SCHED.reschedule_job('dbupdater', trigger=IntervalTrigger(hours=0, minutes=5, timezone='UTC'))
+                        nextrun_stamp = utctimestamp() + (5 * 60)
+                    elif job == 'Auto-Search':
+                        mylar.SCHED.reschedule_job('search', trigger=IntervalTrigger(hours=0, minutes=mylar.SEARCH_INTERVAL, timezone='UTC'))
+                        nextrun_stamp = utctimestamp() + (mylar.SEARCH_INTERVAL * 60)
+                    elif job == 'RSS Feeds':
+                        mylar.SCHED.reschedule_job('rss', trigger=IntervalTrigger(hours=0, minutes=int(mylar.RSS_CHECKINTERVAL), timezone='UTC'))
+                        nextrun_stamp = utctimestamp() + (int(mylar.RSS_CHECKINTERVAL) * 60)
+                    elif job == 'Weekly Pullist':
+                        if mylar.ALT_PULL == 2:
+                            wkt = 4
+                        else:
+                            wkt = 24
+                        mylar.SCHED.reschedule_job('weekly', trigger=IntervalTrigger(hours=wkt, minutes=mylar.SEARCH_INTERVAL, timezone='UTC'))
+                        nextrun_stamp = utctimestamp() + (wkt * 60 * 60)
+                    elif job == 'Check Version':
+                        mylar.SCHED.reschedule_job('version', trigger=IntervalTrigger(hours=0, minutes=mylar.CHECK_GITHUB_INTERVAL, timezone='UTC'))
+                        nextrun_stamp = utctimestamp() + (mylar.CHECK_GITHUB_INTERVAL * 60)
+                    elif job == 'Folder Monitor':
+                        mylar.SCHED.reschedule_job('monitor', trigger=IntervalTrigger(hours=0, minutes=int(mylar.DOWNLOAD_SCAN_INTERVAL), timezone='UTC'))
+                        nextrun_stamp = utctimestamp() + (int(mylar.DOWNLOAD_SCAN_INTERVAL) * 60)
+
+                    nextrun_date = datetime.datetime.utcfromtimestamp(nextrun_stamp)
+                    logger.fdebug('ReScheduled job: %s to %s' % (job, nextrun_date))
+                    #if it's completed, then update the last run time to the ending time of the job
+                    updateVals = {'prev_run_timestamp':   last_run_completed,
+                                  'prev_run_datetime':    datetime.datetime.utcfromtimestamp(last_run_completed),
+                                  'last_run_completed':   'True',
+                                  'next_run_timestamp':   nextrun_stamp,
+                                  'next_run_datetime':    nextrun_date,
+                                  'status':               status}
+
+                #logger.fdebug('Job update for %s: %s' % (updateCtrl, updateVals))
+                myDB.upsert('jobhistory', updateVals, updateCtrl)
 
 def file_ops(path,dst,arc=False,one_off=False):
 #    # path = source path + filename

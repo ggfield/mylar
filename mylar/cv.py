@@ -88,10 +88,9 @@ def pulldetails(comicid, type, issueid=None, offset=1, arclist=None, comicidlist
     #download the file:
     #set payload to None for now...
     payload = None
-    verify = False
 
     try:
-        r = requests.get(PULLURL, params=payload, verify=verify, headers=mylar.CV_HEADERS)
+        r = requests.get(PULLURL, params=payload, verify=mylar.CV_VERIFY, headers=mylar.CV_HEADERS)
     except Exception, e:
         logger.warn('Error fetching data from ComicVine: %s' % (e))
         return
@@ -116,11 +115,14 @@ def getComic(comicid, type, issueid=None, arc=None, arcid=None, arclist=None, co
             id = arcid
             #since the arclist holds the issueids, and the pertinent reading order - we need to strip out the reading order so this works.
             aclist = ''
-            for ac in arclist.split('|'):
-                aclist += ac[:ac.find(',')] + '|'
-            if aclist.endswith('|'):
-                aclist = aclist[:-1]
-            islist = aclist
+            if arclist.startswith('M'):
+                islist = arclist[1:]
+            else:
+                for ac in arclist.split('|'):
+                    aclist += ac[:ac.find(',')] + '|'
+                if aclist.endswith('|'):
+                    aclist = aclist[:-1]
+                islist = aclist
         else:
             id = comicid
             islist = None
@@ -268,6 +270,10 @@ def GetComicInfo(comicid, dom, safechk=None):
     except:
         comic['ComicYear'] = '0000'
 
+    #safety check, cause you known, dufus'...
+    if comic['ComicYear'][-1:] == '-':
+        comic['ComicYear'] = comic['ComicYear'][:-1]
+
     try:
         comic['ComicURL'] = dom.getElementsByTagName('site_detail_url')[trackcnt].firstChild.wholeText
     except:
@@ -298,6 +304,9 @@ def GetComicInfo(comicid, dom, safechk=None):
 
     try:
         comic['Aliases'] = dom.getElementsByTagName('aliases')[0].firstChild.wholeText
+        comic['Aliases'] = re.sub('\n', '##', comic['Aliases']).strip()
+        if comic['Aliases'][-2:] == '##':
+            comic['Aliases'] = comic['Aliases'][:-2]
         #logger.fdebug('Aliases: ' + str(aliases))
     except:
         comic['Aliases'] = 'None'
@@ -584,6 +593,10 @@ def GetSeriesYears(dom):
             logger.warn('There was a problem retrieving the start year for a particular series within the story arc.')
             tempseries['SeriesYear'] = '0000'
 
+        #cause you know, dufus'...
+        if tempseries['SeriesYear'][-1:] == '-':
+            tempseries['SeriesYear'] = tempseries['SeriesYear'][:-1]
+
         desdeck = 0
         tempseries['Volume'] = 'None'
 
@@ -793,7 +806,7 @@ def GetImportList(results):
 
 def drophtml(html):
     from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html)
+    soup = BeautifulSoup(html, "html.parser")
 
     text_parts = soup.findAll(text=True)
     #print ''.join(text_parts)

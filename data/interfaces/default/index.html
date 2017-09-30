@@ -2,6 +2,7 @@
 <%!
 	from mylar import helpers, db
         import datetime
+        import decimal
 %>
 
 <%def name="body()">
@@ -15,11 +16,12 @@
                                 <th id="year">Year</th>
 				<th id="issue">Last Issue</th>
                                 <th id="published">Published</th>
-                                <th class="hidden" id="have_percent">Have %</th>
+                                <th class="hidden" id="havepercent">Have %</th>
 				<th id="have">Have</th>
+                                <th class="hidden" id="totalcount">Total</th>
                                 <th id="status">Status</th>
                                 <th id="active">Active</th>
-                                <th class="hidden" id="active_state">ActiveSt</th>
+                                <th class="hidden" id="activestatus">ActiveSt</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -32,6 +34,18 @@
                                 if comic['percent'] < 100:
                                         css = '<div class=\"progress-container missing\">'
 
+                                if any([comic['haveissues'] == 'None', comic['haveissues'] is None]):
+                                    hissues = 0
+                                else:
+                                    hissues = comic['haveissues'] 
+
+                                if any([comic['totalissues'] == 'None', comic['totalissues'] is None]):
+                                    tissues = 0
+                                else:
+                                    tissues = comic['totalissues']
+
+                                comic_percent = comic['percent']
+
 				if comic['Status'] == 'Paused':
 					grade = 'X'
 				elif comic['Status'] == 'Loading':
@@ -41,15 +55,30 @@
                                 else:
                                         grade = 'A'
 
+                                comicpub = comic['ComicPublisher']
+                                try:
+                                    if len(comic['ComicPublisher']) > 15:
+                                        comicpub = comic['ComicPublisher'][:15] + '...'
+                                except:
+                                    pass
+
+                                comicname = comic['ComicSortName']
+                                try:
+                                    if len(comic['ComicSortName']) > 55:
+                                        comicname = comic['ComicSortName'][:55] + '...'
+                                except:
+                                    pass
+
 			%>
 			<tr class="grade${grade}">
-				<td id="publisher">${comic['ComicPublisher']}</td>
-                                <td id="name"><span title="${comic['ComicSortName']}"></span><a href="comicDetails?ComicID=${comic['ComicID']}">${comic['ComicName']}</a></td>
+				<td id="publisher"><span title="${comicpub}"></span>${comicpub}</td>
+                                <td id="name"><span title="${comicname}"></span><a title="${comic['ComicName']}" href="comicDetails?ComicID=${comic['ComicID']}">${comicname}</a></td>
                                 <td id="year"><span title="${comic['ComicYear']}"></span>${comic['ComicYear']}</td>
 				<td id="issue"><span title="${comic['LatestIssue']}"></span># ${comic['LatestIssue']}</td>
                                 <td id="published">${comic['LatestDate']}</td>
-                                <td class="hidden" id="have_percent">${comic['percent']}</td>
+                                <td class="hidden" id="havepercent">${comic_percent}</td>
 				<td id="have"><span title="${comic['percent']}"></span>${css}<div style="width:${comic['percent']}%"><span class="progressbar-front-text">${comic['haveissues']}/${comic['totalissues']}</span></div></td>
+                                <td class="hidden" id="totalcount">${comic['totalissues']}</td>
 				<td id="status">${comic['recentstatus']}</td>
                                 <td id="active" align="center">
                                 %if comic['Status'] == "Active":
@@ -62,7 +91,7 @@
                                     <img src="interfaces/default/images/cross.png" alt="N" width="16" height="16" />
                                 %endif
                                 </td>
-                                <td class="hidden" id="active_state">${comic['Status']}</td>
+                                <td class="hidden" id="activestatus">${comic['Status']}</td>
                          </tr>
 		%endfor
 		</tbody>
@@ -71,6 +100,7 @@
 </%def>
 
 <%def name="headIncludes()">
+    <link rel="stylesheet" href="interfaces/default/css/data_table.dist.css">
 	<link rel="stylesheet" href="interfaces/default/css/data_table.css">
 </%def>
 
@@ -81,27 +111,29 @@
 	function initThisPage() {
 		$('#series_table').dataTable(
                         {
-			        "bDestroy": true,
-                                "aoColumnDefs": [
-                                     { 'bSortable': false, 'aTargets': [5, 9] },
-                                     { 'bVisible': false, 'aTargets': [5, 9] },
-                                     { 'sType': 'numeric', 'aTargets': [5] },
-                                     { 'iDataSort': [5], 'aTargets': [6] },
-                                     { 'iDataSort': [9], 'aTargets': [8] }
+			        "destroy": true,
+                                "columnDefs": [
+                                     { "orderable": false, "targets": [5, 7, 10] },
+                                     { "visible": false, "targets": [5, 7, 10] },
+                                     { "type": 'num', "targets": 5 },
+                                     { "type": 'num', "targets": 7 },
+                                     { "orderData": [ 5, 7 ], "targets": 6 },
+                                     { "orderData": 10, "targets": 9 },
+                                     { "order": [[7, 'asc'],[1, 'asc']] }
                                 ],
-                                "aLengthMenu": [[10, 15, 25, 50, -1], [10, 15, 25, 50, 'All' ]],
-			        "oLanguage": {
-                                        "sLengthMenu":"Show _MENU_ results per page",
-                                        "sEmptyTable": "No results",
-                                        "sInfo":"Showing _START_ to _END_ of _TOTAL_ results",
-                                        "sInfoEmpty":"Showing 0 to 0 of 0 results",
-                                        "sInfoFiltered":"(filtered from _MAX_ total results)",
-                                        "sSearch" : ""},
-                                "bStateSave": true,
-                                "iDisplayLength": 25,
-                                "sPaginationType": "full_numbers",
-                                "aaSorting": [[7,'asc'],[1,'asc']]
+                                "lengthMenu": [[10, 15, 25, 50, 100, 200, -1], [10, 15, 25, 50, 100, 200, 'All' ]],
+			        "language": {
+                                        "lengthMenu":"Show _MENU_ results per page",
+                                        "emptyTable": "No results",
+                                        "info":"Showing _START_ to _END_ of _TOTAL_ results",
+                                        "infoEmpty":"Showing 0 to 0 of 0 results",
+                                        "infoFiltered":"(filtered from _MAX_ total results)",
+                                        "search" : ""},
+                                "stateSave": true,
+                                "pageLength": 25,
+                                "pagingType": "full_numbers",
 		        });
+        
 		        resetFilters("comic");
 	}
 	

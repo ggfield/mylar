@@ -274,16 +274,16 @@
                        <fieldset id="sabnzbd_options">
 	                	<div class="row">
 		                    <label>SABnzbd Host:</label>
-		                    <input type="text" name="sab_host" value="${config['sab_host']}" size="30">
+		                    <input type="text" name="sab_host" id="sab_host" value="${config['sab_host']}" size="30">
 		                    <small>usually http://localhost:8080</small>
 	                        </div>
 	                   	<div class="row">
 		                    <label>SABnzbd Username</label>
-		                    <input type="text" name="sab_username" value="${config['sab_user']}" size="20">
+		                    <input type="text" name="sab_username" id="sab_username" value="${config['sab_user']}" size="20">
     	                        </div>	               
                                 <div class="row">
                                     <label>SABnzbd Password:</label>
-                                    <input type="password" name="sab_password" value="${config['sab_pass']| h}" size="20">
+                                    <input type="password" name="sab_password" id="sab_password" value="${config['sab_pass']| h}" size="20">
                                 </div>
                                 <div Class="row">
                                      <div class="populatesab">
@@ -398,18 +398,19 @@
 					<input id="enable_torrents" type="checkbox" onclick="initConfigCheckbox($(this));" name="enable_torrents" value=1 ${config['enable_torrents']} /><label>Use Torrents</label>
 				</div>
 				<div class="config">
-                                        <div class="row">
+                                       <div class="row">
                                            <label>Minimum # of seeders</label>
                                            <input type="text" name="minseeds" value="${config['minseeds']}" size="10">
                                        </div>
-
-					<input type="radio" name="torrent_downloader" id="torrent_downloader_watchlist" value="0" ${config['torrent_downloader_watchlist']}> Watchdir&nbsp;&nbsp;
-					<input type="radio" name="torrent_downloader" id="torrent_downloader_utorrent" value="1" ${config['torrent_downloader_utorrent']}> uTorrent&nbsp;&nbsp;
-					<input type="radio" name="torrent_downloader" id="torrent_downloader_rtorrent" value="2" ${config['torrent_downloader_rtorrent']}> rTorrent&nbsp;&nbsp;
-					<input type="radio" name="torrent_downloader" id="torrent_downloader_transmission" value="3" ${config['torrent_downloader_transmission']}> Transmission
-                    <input type="radio" name="torrent_downloader" id="torrent_downloader_deluge" value="4" ${config['torrent_downloader_deluge']}> Deluge
-				</div>
-			</fieldset>
+                                          <center>
+                                            <input type="radio" name="torrent_downloader" id="torrent_downloader_watchlist" value="0" ${config['torrent_downloader_watchlist']}> Watchdir&nbsp;&nbsp;
+                                            <input type="radio" name="torrent_downloader" id="torrent_downloader_utorrent" value="1" ${config['torrent_downloader_utorrent']}> uTorrent&nbsp;&nbsp;
+                                            <input type="radio" name="torrent_downloader" id="torrent_downloader_rtorrent" value="2" ${config['torrent_downloader_rtorrent']}> rTorrent</br>
+                                            <input type="radio" name="torrent_downloader" id="torrent_downloader_transmission" value="3" ${config['torrent_downloader_transmission']}> Transmission&nbsp;&nbsp;
+                                            <input type="radio" name="torrent_downloader" id="torrent_downloader_deluge" value="4" ${config['torrent_downloader_deluge']}> Deluge&nbsp;&nbsp;
+                                            <input type="radio" name="torrent_downloader" id="torrent_downloader_qbittorrent" value="5" ${config['torrent_downloader_qbittorrent']}> qBittorrent
+                                          </center>
+                                
 			<fieldset id="watchlist_options">
                                 <div class="row checkbox left clearfix">
                                         <input id="local_watchdir" type="checkbox" name="torrent_local" value="1" ${config['torrent_local']} /><label>Local Watch dir</label>
@@ -545,6 +546,7 @@
 				<div class="row">
 					<label>Deluge Host:Port </label>
 					<input type="text" name="deluge_host" value="${config['deluge_host']}" size="30">
+                                        <small>port uses the deluge daemon port (remote connection to daemon has to be enabled)</small>
 				</div>
 				<div class="row">
 					<label>Deluge Username</label>
@@ -560,6 +562,36 @@
 					<small>Label to be used on the torrents</small>
 				</div>
 			</fieldset>
+                        </fieldset>
+                                <fieldset id="qbittorrent_options">
+                                <div class="row">
+                                        <label>qBittorrent Host:Port </label>
+                                        <input type="text" name="qbittorrent_host" value="${config['qbittorrent_host']}" size="30">
+                                </div>
+                                <div class="row">
+                                        <label>qBittorrent Username</label>
+                                        <input type="text" name="qbittorrent_username" value="${config['qbittorrent_username']}" size="30">
+                                </div>
+                                <div class="row">
+                                        <label>qBittorrent Password</label>
+                                        <input type="password" name="qbittorrent_password" value="${config['qbittorrent_password']}" size="30">
+                                </div>
+                                <div class="row">
+                                        <label>qBittorrent Label</label>
+                                        <input type="text" name="qbittorrent_label" value="${config['qbittorrent_label']}" size="30"><br/>
+                                        <small>Label to be used on the torrents</small>
+                                </div>
+                                <div class="row">
+                                        <label>qBittorrent Folder</label>
+                                        <input type="text" name="qbittorrent_folder" value="${config['qbittorrent_folder']}" size="30"><br/>
+                                        <small>Folder path where torrents will be assigned to</small>
+                                </div>
+                                <div class="row checkbox left clearfix">
+                                        <input id="qbittorrent_startonload" type="checkbox" name="qbittorrent_startonload" value="1" ${config['qbittorrent_startonload']} /><label>Start Torrent on Successful Load</label>
+                                        <small>Automatically start torrent on successful loading within qBittorrent client</small>
+                                </div>
+                        </fieldset>
+                     </div>
                 </td>
             </tr>
 
@@ -577,7 +609,7 @@
                             <label>RSS Interval Feed Check</label>
                             <input type="text" name="rss_checkinterval" value="${config['rss_checkinterval']}" size="6" /><small>(Mins)</small>
                             <a href="#" style="float:right" type="button" onclick="doAjaxCall('force_rss',$(this))" data-success="RSS Force now running" data-error="Error trying to retrieve RSS Feeds"><span class="ui-icon ui-icon-extlink"></span>Force RSS</a>
-                            </br><small><% rss_last=mylar.RSS_LASTRUN %>last run: ${rss_last}</small>
+                            </br><small>last run: ${config['rss_last']}</small>
                           </div>
                         </fieldset>
                 	<fieldset>
@@ -676,6 +708,15 @@
                                                 <div align="center" class="row">
                                                     <input type="button" value="Test Connection" id="test_32p" style="float:center" /></br>
                                                     <input type="text" name="status32p" style="text-align:center; font-size:11px;" id="status32p" size="50" DISABLED />
+                                                </div>
+                                                <div name="inkdrops32p" id="inkdrops32p" style="font-size:11px;" align="center">
+                                                <%
+                                                    if mylar.INKDROPS_32P is None:
+                                                        inkdrops = ''
+                                                    else:
+                                                        inkdrops = 'Inkdrops Available: ' + '{:06,}'.format(float(mylar.INKDROPS_32P))
+                                                %>
+                                                    <span>${inkdrops}</span>
                                                 </div>
                                              </fieldset>
                                          </div>
@@ -913,7 +954,7 @@
                                     </div>
                                 </div>
                                 <div class="row checkbox left clearfix">
-                                    <input type="checkbox" id="enable_pre_scripts" onclick="initConfigCheckbox($this));" name="enable_pre_scripts" value="1" ${config['enable_pre_scripts']} /><label>Use Extra Script BEFORE Post-Processing</label>
+                                    <input type="checkbox" id="enable_pre_scripts" onclick="initConfigCheckbox($this));" name="enable_pre_scripts" value="1" ${config['enable_pre_scripts']} /><label>Run script BEFORE Post-Processing</label>
                                 </div>
                                 <div class="config">
                                    <div class="row">
@@ -921,9 +962,19 @@
                                       <input type="text" name="pre_scripts" value="${config['pre_scripts']}" size="30">
                                       <small>enter in the absolute path to the script</small>
                                    </div>
-                                </div>  
+                                </div>
                                 <div class="row checkbox left clearfix">
-                                    <input type="checkbox" id="enable_extra_scripts" onclick="initConfigCheckbox($this));" name="enable_extra_scripts" value="1" ${config['enable_extra_scripts']} /><label>Use Extra Script AFTER Post-Processing</label>
+                                    <input type="checkbox" id="enable_snatch_script" onclick="initConfigCheckbox($this));" name="enable_snatch_script" value="1" ${config['enable_snatch_script']} /><label>Run script AFTER an item has been snatched and sent to client</label>
+                                </div>
+                                <div class="config">
+                                    <div class="row">
+                                        <label>On Snatch Script Location</label>
+                                        <input type="text" name="snatch_script" value="${config['snatch_script']}" size="30">
+                                        <small>enter in the absolute path to the script</small>
+                                    </div>
+                                </div>
+                                <div class="row checkbox left clearfix">
+                                    <input type="checkbox" id="enable_extra_scripts" onclick="initConfigCheckbox($this));" name="enable_extra_scripts" value="1" ${config['enable_extra_scripts']} /><label>Run script AFTER Post-Processing</label>
                                 </div>
                                 <div class="config">
                                     <div class="row">
@@ -1117,7 +1168,7 @@
                                         <input type="checkbox" name="nma_onsnatch" value="1" ${config['nma_onsnatch']} /><label>Notify on snatch?</label>
                                     </div>
                                     <label>NotifyMyAndroid API Key</label>
-                                    <input type="text" name="nma_apikey" value="${config['nma_apikey']}" size="30">
+                                    <input type="text" name="nma_apikey" id="nma_apikey" value="${config['nma_apikey']}" size="30">
                                     <small>Separate multiple api keys with commas</small>
                             </div>
                             <div class="row">
@@ -1145,8 +1196,9 @@
                                         %endfor
                                 </select>
                             </div>
-                            <div class="row">
-                                    <input type="button" value="Test NMA" id="nma_test" />
+                            <div align="center" class="row">
+                                 <input type="button" value="Test NMA" id="nma_test" style="float:center" /></br>
+                                 <input type="text" name="nmastatus" style="text-align:center; font-size:11px;" id="nmastatus" size="55" DISABLED />
                             </div>
                         </div>
                      </fieldset>
@@ -1158,10 +1210,10 @@
                         </div>
                         <div id="pushoveroptions">
                              <div class="row">
-                                 <label>API key</label><input type="text" title="Leave blank if you don't have your own API (recommended to get your own)" name="pushover_apikey" value="${config['pushover_apikey']}" size="50">
+                                 <label>API key</label><input type="text" title="Leave blank if you don't have your own API (recommended to get your own)" name="pushover_apikey" id="pushover_apikey" value="${config['pushover_apikey']}" size="50">
                              </div>
                              <div class="row">
-                                 <label>User key</label><input type="text" name="pushover_userkey" value="${config['pushover_userkey']}" size="50">
+                                 <label>User key</label><input type="text" name="pushover_userkey" id="pushover_userkey" value="${config['pushover_userkey']}" size="50">
                              </div>
                              <div class="row checkbox">
                                  <input type="checkbox" name="pushover_onsnatch" value="1" ${config['pushover_onsnatch']} /><label>Notify on snatch?</label>
@@ -1170,9 +1222,10 @@
                                  <label>Priority (-2,-1,0,1 or 2):</label>
                                  <input type="text" name="pushover_priority" value="${config['pushover_priority']}" size="2">
                              </div>
-                             <div class="row">
-                                 <input type="button" value="Test Pushover" id="pushover_test" />
-                             </div>
+                            <div align="center" class="row">
+                                 <input type="button" value="Test Pushover" id="pushover_test" style="float:center" /></br>
+                                 <input type="text" name="pushoverstatus" style="text-align:center; font-size:11px;" id="pushoverstatus" size="55" DISABLED />
+                            </div>
                         </div>
                      </fieldset>            
 
@@ -1204,7 +1257,7 @@
                                         <input type="checkbox" name="pushbullet_onsnatch" value="1" ${config['pushbullet_onsnatch']} /><label>Notify on snatch?</label>
                                     </div>
                                     <div class="row">
-                                        <label>API Key</label><input type="text" name="pushbullet_apikey" value="${config['pushbullet_apikey']}" size="50">
+                                        <label>API Key</label><input type="text" name="pushbullet_apikey" id="pushbullet_apikey" value="${config['pushbullet_apikey']}" size="50">
                                         <small>Warning: Will send to ALL your pushbullet devices</small>
                                     </div>
                                     <div class="row">
@@ -1216,8 +1269,13 @@
 -->
                                     </div>
                                     <div class="row">
-                                         <input type="button" value="Test Pushbullet" id="pushbullet_test" />
+                                        <label>Channel Tag</label><input type="text" name="pushbullet_channel_tag" id="pushbullet_channel_tag" value="${config['pushbullet_channel_tag']}" size="50">
+                                        <small>Send to all subscribers of the channel with this tag (Optional)</small>
                                     </div>
+                                    <div align="center" class="row">
+                                        <input type="button" value="Test Pushbullet" id="pushbullet_test" style="float:center" /></br>
+                                        <input type="text" name="pbstatus" style="text-align:center; font-size:11px;" id="pbstatus" size="55" DISABLED />
+                                   </div>
                                 </div>
                             </fieldset>
 
@@ -1228,19 +1286,39 @@
                         </div>
                         <div id="telegramoptions">
                              <div class="row">
-                                 <label>Userid</label><input type="text" name="telegram_userid" value="${config['telegram_userid']}" size="50">
+                                 <label>Userid</label><input type="text" name="telegram_userid" id="telegram_userid" value="${config['telegram_userid']}" size="50">
                              </div>
                              <div class="row">
-                                 <label>Token</label><input type="text" name="telegram_token" value="${config['telegram_token']}" size="50">
+                                 <label>Token</label><input type="text" name="telegram_token" id="telegram_token" value="${config['telegram_token']}" size="50">
                              </div>
                              <div class="row checkbox">
                                  <input type="checkbox" name="telegram_onsnatch" value="1" ${config['telegram_onsnatch']} /><label>Notify on snatch?</label>
                              </div>
-                             <div class="row">
-                                 <input type="button" value="Test Telegram" id="telegram_test" />
+                             <div align="center" class="row">
+                                 <input type="button" value="Test Telegram" id="telegram_test" style="float:center" /></br>
+                                 <input type="text" name="telegramstatus" style="text-align:center; font-size:11px;" id="telegramstatus" size="55" DISABLED />
                              </div>
                         </div>
                      </fieldset>
+
+                    <fieldset>
+                        <h3><img src="interfaces/default/images/slack.png" style="vertical-align: middle; margin: 3px; margin-top: -1px;" height="30" width="30"/>slack</h3>
+                        <div class="row checkbox">
+                            <input type="checkbox" name="slack_enabled" id="slack" value="1" ${config['slack_enabled']} /><label>Enable Slack Notifications</label>
+                        </div>
+                        <div id="slackoptions">
+                            <div class="row">
+                                <label>Webhook URL</label><input type="text" name="slack_webhook_url" id="slack_webhook_url" value="${config['slack_webhook_url']}" size="50">
+                            </div>
+                            <div class="row checkbox">
+                                <input type="checkbox" name="slack_onsnatch" value="1" ${config['slack_onsnatch']} /><label>Notify on snatch?</label>
+                            </div>
+                            <div align="center" class="row">
+                                <input type="button" value="Test Slack" id="slack_test" style="float:center" /></br>
+                                <input type="text" name="slackstatus" style="text-align:center; font-size:11px;" id="slackstatus" size="55" DISABLED />
+                            </div>
+                        </div>
+                    </fieldset>
 
 	       </td>
              </tr>
@@ -1400,6 +1478,26 @@
                         }
                 });
 
+                if ($("#slack").is(":checked"))
+                {
+                    $("#slackoptions").show();
+                }
+                else
+                {
+                    $("#slackoptions").hide();
+                }
+
+                $("#slack").click(function(){
+                    if ($("#slack").is(":checked"))
+                    {
+                        $("#slackoptions").slideDown();
+                    }
+                    else
+                    {
+                        $("#slackoptions").slideUp();
+                    }
+                });
+
                 if ($("#boxcar").is(":checked"))
                         {
                                 $("#boxcaroptions").show();
@@ -1520,29 +1618,34 @@
 
                 if ($("#torrent_downloader_watchlist").is(":checked"))
                         {
-                                $("#utorrent_options,#rtorrent_options,#transmission_options,#deluge_options").hide();
+                                $("#utorrent_options,#rtorrent_options,#transmission_options,#deluge_options,#qbittorrent_options").hide();
                                 $("#watchlist_options").show();
                         }
                 if ($("#torrent_downloader_utorrent").is(":checked"))
                         {
-                                $("#watchlist_options,#rtorrent_options,#transmission_options,#deluge_options").hide();
+                                $("#watchlist_options,#rtorrent_options,#transmission_options,#deluge_options,#qbittorrent_options").hide();
                                 $("#utorrent_options").show();
                         }
-               if ($("#torrent_downloader_rtorrent").is(":checked"))
+                if ($("#torrent_downloader_rtorrent").is(":checked"))
                         {
-                                $("#utorrent_options,#watchlist_options,#transmission_options,#deluge_options").hide();
+                                $("#utorrent_options,#watchlist_options,#transmission_options,#deluge_options,#qbittorrent_options").hide();
                                 $("#rtorrent_options").show();
                         }
                 if ($("#torrent_downloader_transmission").is(":checked"))
                         {
-                                $("#utorrent_options,#rtorrent_options,#watchlist_options,#deluge_options").hide();
+                                $("#utorrent_options,#rtorrent_options,#watchlist_options,#deluge_options,#qbittorrent_options").hide();
                                 $("#transmission_options").show();
                         }
-                 if ($("#torrent_downloader_deluge").is(":checked"))
+                if ($("#torrent_downloader_deluge").is(":checked"))
                         {
-                                $("#utorrent_options,#rtorrent_options,#watchlist_options,#transmission_options").hide();
+                                $("#utorrent_options,#rtorrent_options,#watchlist_options,#transmission_options,#qbittorrent_options").hide();
                                 $("#deluge_options").show();
                         } 
+                if ($("#torrent_downloader_qbittorrent").is(":checked"))
+                        {
+                                $("#utorrent_options,#rtorrent_options,#watchlist_options,#transmission_options,#deluge_options").hide();
+                                $("#qbittorrent_options").show();
+                        }
 
                 $('input[type=radio]').change(function(){
                         if ($("#nzb_downloader_sabnzbd").is(":checked"))
@@ -1559,24 +1662,28 @@
                         }
 		   if ($("#torrent_downloader_watchlist").is(":checked"))
 		   {
-			$("#utorrent_options,#rtorrent_options,#transmission_options,#deluge_options").fadeOut("fast", function() { $("#watchlist_options").fadeIn() });
+			$("#utorrent_options,#rtorrent_options,#transmission_options,#deluge_options,#qbittorrent_options").fadeOut("fast", function() { $("#watchlist_options").fadeIn() });
 		   }
 		   if ($("#torrent_downloader_utorrent").is(":checked"))
 		   {
-			$("#watchlist_options,#rtorrent_options,#transmission_options,#deluge_options").fadeOut("fast", function() { $("#utorrent_options").fadeIn() });
+			$("#watchlist_options,#rtorrent_options,#transmission_options,#deluge_options,#qbittorrent_options").fadeOut("fast", function() { $("#utorrent_options").fadeIn() });
 		   }
 		   if ($("#torrent_downloader_rtorrent").is(":checked"))
 		   {
-			$("#utorrent_options,#watchlist_options,#transmission_options,#deluge_options").fadeOut("fast", function() { $("#rtorrent_options").fadeIn() });
+			$("#utorrent_options,#watchlist_options,#transmission_options,#deluge_options,#qbittorrent_options").fadeOut("fast", function() { $("#rtorrent_options").fadeIn() });
 		   }
 		   if ($("#torrent_downloader_transmission").is(":checked"))
 		   {
-			$("#utorrent_options,#rtorrent_options,#watchlist_options,#deluge_options").fadeOut("fast", function() { $("#transmission_options").fadeIn() });
+			$("#utorrent_options,#rtorrent_options,#watchlist_options,#deluge_options,#qbittorrent_options").fadeOut("fast", function() { $("#transmission_options").fadeIn() });
 		   }
 		   if ($("#torrent_downloader_deluge").is(":checked"))
 		   {
-			$("#utorrent_options,#rtorrent_options,#watchlist_options,#transmission_options").fadeOut("fast", function() { $("#deluge_options").fadeIn() });
+			$("#utorrent_options,#rtorrent_options,#watchlist_options,#transmission_options,#qbittorrent_options").fadeOut("fast", function() { $("#deluge_options").fadeIn() });
 		   }
+                   if ($("#torrent_downloader_qbittorrent").is(":checked"))
+                   {
+                        $("#utorrent_options,#rtorrent_options,#watchlist_options,#transmission_options,#deluge_options").fadeOut("fast", function() { $("#qbittorrent_options").fadeIn() });
+                   }
                 });
 
                 var deletedNewznabs = 0;
@@ -1597,6 +1704,11 @@
                             $('#api_key').val(data);
                     });
                 });
+
+                function numberWithCommas(x) {
+                        return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                };
+
                 $("#test_32p").click(function(){
                     $.get('test_32p',
                         function(data){
@@ -1604,19 +1716,32 @@
                                 alert(data.error);
                                 return;
                             }
-                            $('#status32p').val(data);
+                            var obj = JSON.parse(data);
+                            var inkd = parseInt(obj['inkdrops']);
+                            inkd = numberWithCommas(inkd);
+                            $('#status32p').val(obj['status']);
+                            $('#inkdrops32p span').text('Inkdrops Available: '+inkd);
                     });
                 });
-                $("#test_sab").click(function(){
-                    $.get('SABtest',
+
+                $('#test_sab').click(function () {
+                    var sabhost = document.getElementById('sab_host').value;
+                    var sabuser = document.getElementById('sab_username').value;
+                    var sabpass = document.getElementById('sab_password').value;
+                    var sabapi = document.getElementById('sab_apikey').value;
+                    $.get("SABtest",
+                        { sabhost: sabhost, sabusername: sabuser, sabpassword: sabpass, sabapikey: sabapi },
                         function(data){
                             if (data.error != undefined) {
                                 alert(data.error);
                                 return;
                             }
                             $('#sabstatus').val(data);
+                            $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>");
                     });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                 });
+
                 if ($("#enable_https").is(":checked"))
                         {
                             $("#https_options").show();
@@ -1653,9 +1778,12 @@
                             $("#perms_options").slideUp();
                         }
                 });
-                $('#sab_apikey').click(function(){ $('#sab_apikey').select() });
                 $("#find_sabapi").click(function(){
+                    var sabhost = document.getElementById('sab_host').value;
+                    var sabuser = document.getElementById('sab_username').value;
+                    var sabpass = document.getElementById('sab_password').value;
                     $.get('findsabAPI',
+                        { sabhost: sabhost, sabusername: sabuser, sabpassword: sabpass },
                         function(data){
                             if (data.error != undefined) {
                                 alert(data.error);
@@ -1678,13 +1806,23 @@
                     formfields.append("</div>");
                     $("#add_newznab").before(formfields);
                 });
+
                 function addAction() {
                         $('#autoadd').append('<input type="hidden" name="tsab" value=1 />');
                 };
 
                 $('#nma_test').click(function () {
+                    var apikey = document.getElementById('nma_apikey').value;
                     $.get("testNMA",
-                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                        { apikey: apikey },
+                        function(data){
+                            if (data.error != undefined) {
+                                alert(data.error);
+                                return;
+                            }
+                            $('#nmastatus').val(data);
+                            $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>");
+                    });
                     $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                 });
 
@@ -1695,8 +1833,18 @@
                 });
 
                 $('#pushover_test').click(function () {
+                    var apikey = document.getElementById('pushover_apikey').value;
+                    var userkey = document.getElementById('pushover_userkey').value;
                     $.get("testpushover",
-                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                        { apikey: apikey, userkey: userkey },
+                        function(data){
+                            if (data.error != undefined) {
+                                alert(data.error);
+                                return;
+                            }
+                            $('#pushoverstatus').val(data);
+                            $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>");
+                    });
                     $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                 });
 
@@ -1707,14 +1855,48 @@
                 });
 
                 $('#pushbullet_test').click(function () {
+                    var apikey = document.getElementById('pushbullet_apikey').value;
                     $.get("testpushbullet",
-                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                        { apikey: apikey },
+                        function(data){
+                            if (data.error != undefined) {
+                                alert(data.error);
+                                return;
+                            }
+                            $('#pbstatus').val(data);
+                            $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>");
+                    });
                     $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                 });
 
                 $('#telegram_test').click(function () {
+                    var userid = document.getElementById('telegram_userid').value;
+                    var token = document.getElementById('telegram_token').value;
                     $.get("testtelegram",
-                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                        { userid: userid, token: token },
+                        function(data){
+                            if (data.error != undefined) {
+                                alert(data.error);
+                                return;
+                            }
+                            $('#telegramstatus').val(data);
+                            $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>");
+                    });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                });
+
+                $('#slack_test').click(function () {
+                    var webhook_url = document.getElementById('slack_webhook_url').value;
+                    $.get("testslack",
+                        { webhook_url: webhook_url },
+                        function(data){
+                            if (data.error != undefined) {
+                                alert(data.error);
+                                return;
+                            }
+                            $('#slackstatus').val(data);
+                            $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>");
+                        });
                     $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
                 });
 
@@ -1749,6 +1931,7 @@
                 initConfigCheckbox("#post_processing");
                 initConfigCheckbox("#enable_check_folder");
                 initConfigCheckbox("#enable_pre_scripts");
+                initConfigCheckbox("#enable_snatch_script");
                 initConfigCheckbox("#enable_extra_scripts");
 	}
 	$(document).ready(function() {

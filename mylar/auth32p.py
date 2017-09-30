@@ -1,6 +1,7 @@
 import urllib2
 import re
 import time
+import math
 import datetime
 import os
 import requests
@@ -24,12 +25,14 @@ class info32p(object):
                         'Accept-Charset': 'utf-8',
                         'User-Agent': 'Mozilla/5.0'}
 
-        if test:
+        if test is True:
             self.test = True
         else:
             self.test = False
+
         self.error = None
         self.method = None
+
         lses = self.LoginSession(mylar.USERNAME_32P, mylar.PASSWORD_32P)
 
         if not lses.login():
@@ -42,17 +45,23 @@ class info32p(object):
                 else:
                     return self.method
         else:
-            logger.info(self.module + '[LOGIN SUCCESS] Now preparing for the use of 32P keyed authentication...')
+            logger.fdebug(self.module + '[LOGIN SUCCESS] Now preparing for the use of 32P keyed authentication...')
             self.authkey = lses.authkey
             self.passkey = lses.passkey
             self.uid = lses.uid
-         
+            try:
+                mylar.INKDROPS_32P = int(math.floor(float(lses.inkdrops['results'][0]['inkdrops'])))
+            except:
+                mylar.INKDROPS_32P = lses.inkdrops['results'][0]['inkdrops']
+
         self.reauthenticate = reauthenticate
         self.searchterm = searchterm
-        self.test = test
         self.publisher_list = {'Entertainment', 'Press', 'Comics', 'Publishing', 'Comix', 'Studios!'}
 
     def authenticate(self):
+
+        if self.test:
+            return {'status': True, 'inkdrops': mylar.INKDROPS_32P}
 
         feedinfo = []
 
@@ -76,7 +85,6 @@ class info32p(object):
                     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
                 # post to the login form
-                
                 r = s.post(self.url, verify=verify, allow_redirects=True)
 
                 #logger.debug(self.module + " Content session reply" + r.text)
@@ -150,7 +158,7 @@ class info32p(object):
         except NameError:
             logger.warn('Unable to retrieve information from 32Pages - either it is not responding/is down or something else is happening that is stopping me.')
             return
-           
+
         if self.reauthenticate:
             return
         else:
@@ -161,8 +169,6 @@ class info32p(object):
         #self.searchterm is a tuple containing series name, issue number, volume and publisher.
         series_search = self.searchterm['series']
         comic_id = self.searchterm['id']
-        if comic_id:
-            chk_id = helpers.checkthe_id(comic_id)
 
         annualize = False
         if 'Annual' in series_search:
@@ -175,13 +181,13 @@ class info32p(object):
         for x in spl:
             publisher_search = re.sub(x, '', publisher_search).strip()
         logger.info('publisher search set to : ' + publisher_search)
- 
+
         chk_id = None
         # lookup the ComicID in the 32p sqlite3 table to pull the series_id to use.
         if comic_id:
             chk_id = helpers.checkthe_id(comic_id)
-            
-        if not chk_id:
+
+        if any([not chk_id, mylar.DEEP_SEARCH_32P is True]):
             #generate the dynamic name of the series here so we can match it up
             as_d = filechecker.FileChecker()
             as_dinfo = as_d.dynamic_replace(series_search)
@@ -232,7 +238,7 @@ class info32p(object):
             pdata = []
             pubmatch = False
 
-            if not chk_id:
+            if any([not chk_id, mylar.DEEP_SEARCH_32P is True]):
                 if mylar.SEARCH_32P:
                     url = 'https://32pag.es/torrents.php' #?action=serieslist&filter=' + series_search #&filter=F
                     params = {'action': 'serieslist', 'filter': series_search}
@@ -281,33 +287,26 @@ class info32p(object):
 
             if all([len(data) == 0, len(pdata) == 0]):
                 return "no results"
-
-            if len(pdata) == 1:
-                logger.info(str(len(pdata)) + ' series match the title being search for')
-                dataset = pdata
-                searchid = pdata[0]['id']
-            elif len(data) == 1:
-                logger.info(str(len(data)) + ' series match the title being search for')
-                dataset = data
-                searchid = data[0]['id']
             else:
                 dataset = []
                 if len(data) > 0:
                     dataset += data
                 if len(pdata) > 0:
                     dataset += pdata
-                
+                logger.info('dataset: %s' % dataset)
+                logger.info(str(len(dataset)) + ' series match the tile being searched for on 32P...')
+
             if chk_id is None and any([len(data) == 1, len(pdata) == 1]):
                 #update the 32p_reference so we avoid doing a url lookup next time
                 helpers.checkthe_id(comic_id, dataset)
             else:
-                logger.warn('More than one result - will update the 32p reference point once the issue has been successfully matched against.')
+                logger.debug('Unable to properly verify reference on 32P - will update the 32P reference point once the issue has been successfully matched against.')
 
             results32p = []
             resultlist = {}
 
             for x in dataset:
-
+                #for 0-day packs, issue=week#, volume=month, id=0-day year pack
                 payload = {'action': 'groupsearch',
                            'id':     x['id'], #searchid,
                            'issue':  issue_search}
@@ -321,11 +320,9 @@ class info32p(object):
                 time.sleep(1)  #just to make sure we don't hammer, 1s pause.
                 try:
                     d = s.post(url, params=payload, verify=True, allow_redirects=True)
-                    logger.debug(self.module + ' Reply from AJAX: \n %s', d.text)
+                    #logger.debug(self.module + ' Reply from AJAX: \n %s', d.text)
                 except Exception as e:
                     logger.info(self.module + ' Could not POST URL %s', url)
-                
-
 
                 try:
                     searchResults = d.json()
@@ -334,8 +331,7 @@ class info32p(object):
                     logger.debug(self.module + ' Search Result did not return valid JSON, falling back on text: %s', searchResults.text)
                     return False
 
-                logger.debug(self.module + " Search Result: %s", searchResults)
-                    
+                #logger.debug(self.module + " Search Result: %s", searchResults)
                 if searchResults['status'] == 'success' and searchResults['count'] > 0:
                     logger.info('successfully retrieved ' + str(searchResults['count']) + ' search results.')
                     for a in searchResults['details']:
@@ -350,7 +346,8 @@ class info32p(object):
                                            'leechers':  a['leechers'],
                                            'scanner':   a['scanner'],
                                            'chkit':     {'id': x['id'], 'series': x['series']},
-                                           'pubdate':   datetime.datetime.fromtimestamp(float(a['upload_time'])).strftime('%c')})
+                                           'pubdate':   datetime.datetime.fromtimestamp(float(a['upload_time'])).strftime('%a, %d %b %Y %H:%M:%S'),
+                                           'int_pubdate': float(a['upload_time'])})
 
 
             if len(results32p) > 0:
@@ -389,6 +386,7 @@ class info32p(object):
             self.authkey = None
             self.passkey = None
             self.uid = None
+            self.inkdrops = None
 
         def cookie_exists(self, name):
             '''
@@ -456,6 +454,19 @@ class info32p(object):
             self.uid = j['response']['id']
             self.authkey = j['response']['authkey']
             self.passkey = pk = j['response']['passkey']
+
+            try:
+                d = self.ses.get('https://32pag.es/ajax.php', params={'action': 'user_inkdrops'}, verify=True, allow_redirects=True)
+            except Exception as e:
+                logger.error('Unable to retreive Inkdrop total : %s' % e)
+            else:
+                try:
+                    self.inkdrops = d.json()
+                except:
+                    logger.error('Inkdrop result did not return valid JSON, unable to verify response')
+                else:
+                    logger.info('inkdrops: %s' % self.inkdrops)
+
             return True
 
         def valid_login_attempt(self, un, pw):
@@ -486,7 +497,7 @@ class info32p(object):
 
             if r.status_code != 200:
                 logger.warn(self.module + " Got bad status code from login POST: %d\n%s\n%s", r.status_code, r.text, r.headers)
-                logger.debug(self.module + " Request URL: %s \n Content: %s \n History: %s \n Json: %s", r.url ,r.text, r.history, d)
+                logger.debug(self.module + " Request URL: %s \n Content: %s \n History: %s", r.url ,r.text, r.history)
                 self.error = {'status':'Bad Status code', 'message':(r.status_code, r.text, r.headers)}
                 return False
 
@@ -494,7 +505,7 @@ class info32p(object):
                 logger.debug(self.module + ' Trying to analyze login JSON reply from 32P: %s', r.text)
                 d = r.json()
             except:
-                logger.debug(self.module + " Request URL: %s \n Content: %s \n History: %s \n Json: %s", r.url ,r.text, r.history, d)
+                logger.debug(self.module + " Request URL: %s \n Content: %s \n History: %s", r.url ,r.text, r.history)
                 logger.error(self.module + " The data returned by the login page was not JSON: %s", r.text)
                 self.error = {'status':'JSON not returned', 'message':r.text}
                 return False
@@ -578,11 +589,11 @@ class info32p(object):
 
             if (self.test_login()):
                 logger.fdebug(self.module + ' Credential-based login was good.')
-                self.method = 'Session Cookie retrieved OK.'
+                self.method = 'Credential-based login OK.'
                 return True
 
             logger.warn(self.module + ' Both session key and credential-based logins failed.')
-            self.method = 'Failed to retrieve Session Cookie.'
+            self.method = 'Both session key & credential login failed.'
             return False
 
 

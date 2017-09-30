@@ -47,6 +47,7 @@ class FileChecker(object):
             #watchcomic = unicode name of series that is being searched against
             self.og_watchcomic = watchcomic
             self.watchcomic = re.sub('\?', '', watchcomic).strip()  #strip the ? sepearte since it affects the regex.
+            self.watchcomic = re.sub(u'\u2014', ' - ', watchcomic).strip()  #replace the \u2014 with a normal - because this world is f'd up enough to have something like that.
             self.watchcomic = unicodedata.normalize('NFKD', self.watchcomic).encode('ASCII', 'ignore')
         else:
             self.watchcomic = None
@@ -91,7 +92,7 @@ class FileChecker(object):
 
 
         self.failed_files = []
-        self.dynamic_handlers = ['/','-',':','\'',',','&','?','!','+','(',')']
+        self.dynamic_handlers = ['/','-',':','\'',',','&','?','!','+','(',')','\u2014']
         self.dynamic_replacements = ['and','the']
         self.rippers = ['-empire','-empire-hd','minutemen-','-dcp']
 
@@ -151,7 +152,8 @@ class FileChecker(object):
                                     'series_volume':       runresults['series_volume'],
                                     'issue_year':          runresults['issue_year'],
                                     'issue_number':        runresults['issue_number'],
-                                    'scangroup':           runresults['scangroup']
+                                    'scangroup':           runresults['scangroup'],
+                                    'reading_order':       runresults['reading_order']
                                     })
                         else:
                             comiclist.append({
@@ -230,6 +232,7 @@ class FileChecker(object):
             #split the file and then get all the relevant numbers that could possibly be an issue number.
             #remove the extension.
             modfilename = re.sub(filetype, '', filename).strip()
+            reading_order = None
 
             #if it's a story-arc, make sure to remove any leading reading order #'s
             if self.sarc and mylar.READ2FILENAME:
@@ -237,6 +240,8 @@ class FileChecker(object):
                 if mylar.FOLDER_SCAN_LOG_VERBOSE:
                    logger.fdebug('[SARC] Checking filename for Reading Order sequence - Reading Sequence Order found #: ' + str(modfilename[:removest]))
                 if modfilename[:removest].isdigit() and removest <= 3:
+                    reading_order = {'reading_sequence': str(modfilename[:removest]),
+                                     'filename':         filename[removest+1:]}
                     modfilename = modfilename[removest+1:]
                     if mylar.FOLDER_SCAN_LOG_VERBOSE:
                         logger.fdebug('[SARC] Removed Reading Order sequence from subname. Now set to : ' + modfilename)
@@ -257,9 +262,11 @@ class FileChecker(object):
                             elif rp.lower() in m[cnt].lower():
                                 scangroup = re.sub('[\(\)]', '', m[cnt]).strip()
                                 logger.fdebug('Scanner group tag discovered: ' + scangroup)
-                                modfilename = re.sub(m[cnt],'', modfilename).strip()
+                                modfilename = modfilename.replace(m[cnt],'').strip()
                                 break
                             cnt +=1
+
+                    modfilename = modfilename.replace('()','').strip()
 
             #here we take a snapshot of the current modfilename, the intent is that we will remove characters that match
             #as we discover them - namely volume, issue #, years, etc
@@ -321,7 +328,7 @@ class FileChecker(object):
             lastmod_position = 0
 
             #exceptions that are considered alpha-numeric issue numbers
-            exceptions = ('NOW', 'AI', 'AU', 'X', 'A', 'B', 'C', 'INH')
+            exceptions = ('NOW', 'AI', 'AU', 'X', 'A', 'B', 'C', 'INH', 'MU')
 
             #unicode characters, followed by int value 
     #        num_exceptions = [{iss:u'\xbd',val:.5},{iss:u'\xbc',val:.25}, {iss:u'\xe',val:.75}, {iss:u'\221e',val:'infinity'}]
@@ -489,19 +496,22 @@ class FileChecker(object):
 
                 #now we try to find the series title &/or volume lablel.
                 if any( [sf.lower().startswith('v'), sf.lower().startswith('vol'), volumeprior == True, 'volume' in sf.lower(), 'vol' in sf.lower()] ) and sf.lower() not in {'one','two','three','four','five','six'}:
-                    if sf[1:].isdigit() or sf[3:].isdigit():# or volumeprior == True:
+                    if any([ split_file[split_file.index(sf)].isdigit(), split_file[split_file.index(sf)][3:].isdigit(), split_file[split_file.index(sf)][1:].isdigit() ]):
                         volume = re.sub("[^0-9]", "", sf)
                         if volumeprior:
                             try:
-                                volumetmp = split_file.index(volumeprior_label, current_pos -1) #if this passes, then we're ok, otherwise will try exception
-                                volume_found['position'] = split_file.index(sf, current_pos)
+                                volume_found['position'] = split_file.index(volumeprior_label, current_pos -1) #if this passes, then we're ok, otherwise will try exception
+                                logger.fdebug('volume_found: ' + str(volume_found['position']))
                             except:
+                                volumeprior = False
+                                volumeprior_label = None
                                 sep_volume = False
                                 continue
                         else:
                             volume_found['position'] = split_file.index(sf, current_pos)
 
                         volume_found['volume'] = volume
+                        logger.fdebug('volume label detected as : Volume ' + str(volume) + ' @ position: ' + str(split_file.index(sf)))
                         volumeprior = False
                         volumeprior_label = None
                     elif 'vol' in sf.lower() and len(sf) == 3:
@@ -509,7 +519,7 @@ class FileChecker(object):
                         volumeprior = True
                         volumeprior_label = sf
                         sep_volume = True
-                        #logger.fdebug('volume label detected, but vol. number is not adjacent, adjusting scope to include number.')
+                        logger.fdebug('volume label detected, but vol. number is not adjacent, adjusting scope to include number.')
                     elif 'volume' in sf.lower():
                         volume = re.sub("[^0-9]", "", sf)
                         if volume.isdigit():
@@ -570,6 +580,9 @@ class FileChecker(object):
                             else:
                                 raise ValueError
                         except ValueError, e:
+                            volumeprior = False
+                            volumeprior_label = None
+                            sep_volume = False
                             pass
                             #logger.fdebug('Error detecting issue # - ignoring this result : '  + str(sf))
 
@@ -738,7 +751,10 @@ class FileChecker(object):
                     if sep_volume:
                         highest_series_pos = issue_number_position -2
                     else:
-                        highest_series_pos = issue_number_position -1
+                        if split_file[issue_number_position -1].lower() == 'annual':
+                            highest_series_pos = issue_number_position
+                        else:
+                            highest_series_pos = issue_number_position - 1
 
             #make sure if we have multiple years detected, that the right one gets picked for the actual year vs. series title
             if len(possible_years) > 1:
@@ -819,7 +835,8 @@ class FileChecker(object):
                         'series_volume':          issue_volume,
                         'issue_year':             issue_year,
                         'issue_number':           issue_number,
-                        'scangroup':              scangroup}
+                        'scangroup':              scangroup,
+                        'reading_order':          reading_order}
 
             series_info = {}
             series_info = {'sub':                   path_list,
@@ -847,7 +864,7 @@ class FileChecker(object):
             mod_series_decoded = self.dynamic_replace(series_info['series_name_decoded'])
             mod_seriesname_decoded = mod_dynamicinfo['mod_seriesname']
             mod_watch_decoded = self.dynamic_replace(self.og_watchcomic)
-            mod_watchname_decoded = mod_dynamicinfo['mod_seriesname']
+            mod_watchname_decoded = mod_dynamicinfo['mod_watchcomic']
 
             #remove the spaces...
             nspace_seriesname = re.sub(' ', '', mod_seriesname)
@@ -1005,7 +1022,7 @@ class FileChecker(object):
             #logger.fdebug('watch dynamic handlers recognized : ' + str(watchdynamic_handlers_match))
             watchdynamic_replacements_match = [x for x in self.dynamic_replacements if x.lower() in self.watchcomic.lower()]
             #logger.fdebug('watch dynamic replacements recognized : ' + str(watchdynamic_replacements_match))
-            mod_watchcomic = re.sub('[\s\_\.\s+]', '', self.watchcomic)
+            mod_watchcomic = re.sub('[\s\_\.\s+\#]', '', self.watchcomic)
             mod_find = []
             wdrm_find = []
             if any([watchdynamic_handlers_match, watchdynamic_replacements_match]):
@@ -1029,11 +1046,12 @@ class FileChecker(object):
                                 spacer+='|'
                             mod_watchcomic = mod_watchcomic[:wd] + spacer + mod_watchcomic[wd+len(wdrm):]
 
+        series_name = re.sub(u'\u2014', ' - ', series_name)
         seriesdynamic_handlers_match = [x for x in self.dynamic_handlers if x.lower() in series_name.lower()]
         #logger.fdebug('series dynamic handlers recognized : ' + str(seriesdynamic_handlers_match))
         seriesdynamic_replacements_match = [x for x in self.dynamic_replacements if x.lower() in series_name.lower()]
         #logger.fdebug('series dynamic replacements recognized : ' + str(seriesdynamic_replacements_match))
-        mod_seriesname = re.sub('[\s\_\.\s+]', '', series_name)
+        mod_seriesname = re.sub('[\s\_\.\s+\#]', '', series_name)
         ser_find = []
         sdrm_find = []
         if any([seriesdynamic_handlers_match, seriesdynamic_replacements_match]):
